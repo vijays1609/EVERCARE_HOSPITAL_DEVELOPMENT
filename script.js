@@ -557,7 +557,190 @@ function createRegisterStep3Template() {
 }
 
 // --- Authenticated Full-Page Workspace Template ---
+const PORTAL_LOCATIONS = [
+  { id: "mi-room", label: "MI Room", description: "Medical Inspection Room" },
+  { id: "trauma-center", label: "Trauma Center", description: "24/7 emergency response" },
+  ...DEPARTMENT_LIST.map((department) => ({
+    id: `department-${department.name.toLowerCase().replace(/[^a-z0-9]+/g, "-")}`,
+    label: department.name,
+    description: department.desc
+  }))
+];
+
+function createPortalLocationTemplate(location) {
+  return `
+    <div class="portal-location-heading">
+      <span class="portal-eyebrow">Selected care unit</span>
+      <h3>${location.label}</h3>
+      <p>${location.description}</p>
+    </div>
+    <div class="portal-action-grid">
+      <button class="portal-action-card" type="button" data-portal-action="register">
+        <span class="portal-action-icon">+</span>
+        <span><strong>Register a Patient</strong><small>Create a new patient record</small></span>
+        <span class="portal-action-arrow">&rsaquo;</span>
+      </button>
+      <button class="portal-action-card" type="button" data-portal-action="admission">
+        <span class="portal-action-icon">&#8594;</span>
+        <span><strong>Admission</strong><small>Start an inpatient admission</small></span>
+        <span class="portal-action-arrow">&rsaquo;</span>
+      </button>
+      <button class="portal-action-card" type="button" data-portal-action="registered-list">
+        <span class="portal-action-icon">&#128100;</span>
+        <span><strong>Registered Patients</strong><small>View today's or this week's visits</small></span>
+        <span class="portal-action-arrow">&rsaquo;</span>
+      </button>
+      <button class="portal-action-card" type="button" data-portal-action="admitted-list">
+        <span class="portal-action-icon">&#9776;</span>
+        <span><strong>Admitted Patients</strong><small>View patients in this unit</small></span>
+        <span class="portal-action-arrow">&rsaquo;</span>
+      </button>
+    </div>
+  `;
+}
+
+function getPortalRecords(storageKey, location, period) {
+  const records = JSON.parse(localStorage.getItem(storageKey) || "[]");
+  const now = Date.now();
+  const periodStart = period === "week" ? now - (7 * 24 * 60 * 60 * 1000) : new Date().setHours(0, 0, 0, 0);
+  return records.filter((record) => {
+    const belongsToLocation = record.department === location.label || record.careUnit === location.label;
+    return belongsToLocation && (!period || new Date(record.createdAt).getTime() >= periodStart);
+  });
+}
+
+function createPortalRecordsTemplate(type, location, period = "day") {
+  const isAdmissions = type === "admitted-list";
+  const records = getPortalRecords(isAdmissions ? "evercare_admissions" : "evercare_patient_records", location, isAdmissions ? null : period);
+  const rows = records.length ? records.map((record) => `
+    <div class="portal-record-row">
+      <div><strong>${record.fullName}</strong><small>${record.id} &bull; ${record.phone}</small>${isAdmissions ? `<button class="portal-record-btn treatment-plan" type="button" data-treatment-edit="${record.id}">Treatment Plan</button>` : ""}</div>
+      <div class="portal-record-meta">
+        <span>${new Date(record.createdAt).toLocaleDateString()}</span>
+        ${isAdmissions ? `<button class="portal-record-btn" type="button" data-admission-edit="${record.id}">Edit Details</button><button class="portal-record-btn payment ${record.paymentCleared ? "paid" : ""}" type="button" data-record-payment="${record.id}" ${record.paymentCleared ? "disabled" : ""}>${record.paymentCleared ? "Paid / No Due" : "Make Payment"}</button><button class="portal-record-btn discharge" type="button" data-record-discharge="${record.id}" ${record.paymentCleared ? "" : "disabled"}>${record.paymentCleared ? "Discharge (No Due Payment)" : "Discharge"}</button>` : `<button class="portal-record-btn" type="button" data-record-edit="${record.id}">Edit</button><button class="portal-record-btn delete" type="button" data-record-delete="${record.id}">Delete</button>`}
+      </div>
+    </div>
+  `).join("") : `<div class="portal-empty-state">No ${isAdmissions ? "admitted patients found in this unit" : `registered patients found for this ${period}` }.</div>`;
+
+  return `
+    <div class="portal-form-heading">
+      <button class="portal-back-btn" type="button" data-portal-back>&larr; Back to ${location.label}</button>
+      <span class="portal-eyebrow">${isAdmissions ? "Inpatient census" : "Consultation register"}</span>
+      <h3>${isAdmissions ? "Admitted Patients" : "Registered Patients"}</h3>
+      <p>${location.label} patient records for the selected period.</p>
+    </div>
+    ${!isAdmissions ? `<div class="portal-record-filters">
+      <button class="portal-filter-btn ${period === "day" ? "active" : ""}" type="button" data-record-type="${type}" data-record-period="day">Today</button>
+      <button class="portal-filter-btn ${period === "week" ? "active" : ""}" type="button" data-record-type="${type}" data-record-period="week">This Week</button>
+    </div>` : ""}
+    <div class="portal-record-list">${rows}</div>
+  `;
+}
+
+function createPortalFormTemplate(type, location, record = null) {
+  const isRegistration = type === "register";
+  const isEditingAdmission = type === "admission-edit";
+  const fieldValue = (field) => record?.[field] ? `value="${record[field]}"` : "";
+  const selected = (field, value) => record?.[field] === value ? "selected" : "";
+  return `
+    <div class="portal-form-heading">
+      <button class="portal-back-btn" type="button" data-portal-back>&larr; Back to ${location.label}</button>
+      <span class="portal-eyebrow">${isRegistration ? "Patient intake" : "Inpatient intake"}</span>
+      <h3>${isRegistration ? (record ? "Edit Registered Patient" : "Register a Patient") : (isEditingAdmission ? "Edit Admission Details" : "Admission")}</h3>
+      <p>${isRegistration ? "Create a patient record for consultation at " + location.label + "." : "Request admission for the selected department or care unit."}</p>
+    </div>
+    <form class="portal-form" id="${isRegistration ? "patient-registration-form" : "patient-admission-form"}">
+      <div class="portal-form-section">
+        <h4>Patient Details</h4>
+        <div class="portal-form-grid">
+          <label>Full Name<input name="fullName" type="text" required placeholder="Patient full name" ${fieldValue("fullName")}></label>
+          <label>Age<input name="age" type="number" min="0" max="120" required placeholder="Age" ${fieldValue("age")}></label>
+          <label>Phone Number<input name="phone" type="tel" required placeholder="10-digit phone number" ${fieldValue("phone")}></label>
+          <label>Email Address<input name="email" type="email" placeholder="patient@example.com" ${fieldValue("email")}></label>
+          ${isRegistration ? `<label>Gender<select name="gender" required><option value="" disabled ${record ? "" : "selected"}>Select gender</option><option ${selected("gender", "Female")}>Female</option><option ${selected("gender", "Male")}>Male</option><option ${selected("gender", "Other")}>Other</option></select></label><input name="careUnit" type="hidden" value="${record?.careUnit || location.label}">` : `<label>Department / Unit<input name="department" type="text" value="${location.label}" readonly></label>`}
+          ${isRegistration ? `<label>Visit Type<select name="visitType" required><option ${selected("visitType", "Consultation")}>Consultation</option><option ${selected("visitType", "Follow-up")}>Follow-up</option><option ${selected("visitType", "Emergency")}>Emergency</option></select></label>` : `<label>Doctor Assigned<input name="doctor" type="text" required placeholder="Doctor's name" ${fieldValue("doctor")}></label>`}
+        </div>
+      </div>
+      ${isRegistration ? `
+        <div class="portal-form-section">
+          <h4>Doctor Notes</h4>
+          <div class="portal-form-grid portal-form-grid-wide">
+            <label>Diagnosis<textarea name="diagnosis" rows="3" placeholder="Add diagnosis or clinical notes">${record?.diagnosis || ""}</textarea></label>
+            <label>Prescription<textarea name="prescription" rows="3" placeholder="Add prescribed medicines and instructions">${record?.prescription || ""}</textarea></label>
+          </div>
+        </div>
+      ` : `
+        <div class="portal-form-section">
+          <h4>Admission Details</h4>
+          <div class="portal-form-grid">
+            <label>Room Type<select name="roomType" id="admission-room-type" required><option value="8-bed" ${record?.roomType === "8-bed" ? "selected" : ""}>8-bed sharing room (INR 5,000)</option><option value="4-bed" ${record?.roomType === "4-bed" ? "selected" : ""}>4-bed sharing room (INR 6,500)</option><option value="single" ${record?.roomType === "single" ? "selected" : ""}>Single bed room (INR 8,000)</option></select></label>
+            <label>Bed Preference<input name="bed" type="text" placeholder="Optional bed number" ${fieldValue("bed")}></label>
+            <label>Linens Required<select name="linens" required><option ${selected("linens", "Standard")}>Standard</option><option ${selected("linens", "Extra set")}>Extra set</option><option ${selected("linens", "Patient-provided")}>Patient-provided</option></select></label>
+            <label>Dietary Preference<select name="diet" id="admission-diet" required><option value="Vegetarian" ${record?.diet !== "Non-vegetarian" ? "selected" : ""}>Vegetarian (included)</option><option value="Non-vegetarian" ${selected("diet", "Non-vegetarian")}>Non-vegetarian (+INR 200)</option></select></label>
+            <label>Expected Stay (days)<input name="stay" id="admission-stay" type="number" min="1" required placeholder="Number of days" ${fieldValue("stay")}></label>
+          </div>
+        </div>
+      `}
+      ${!isEditingAdmission ? `<div class="portal-payment-box">
+        <div><h4>Payment</h4><p id="admission-payment-amount">${isRegistration ? "Consultation fee: INR 500" : "Select stay duration for total"}</p></div>
+        <button class="portal-pay-btn" type="button" data-pay-form="${isRegistration ? "registration" : "admission"}">Complete Payment</button>
+        <span class="portal-payment-status" aria-live="polite">Payment pending</span>
+      </div>` : ""}
+      <button class="portal-final-btn" type="submit" ${isEditingAdmission ? "" : "disabled"}>${isRegistration ? (record ? "Save Patient Changes" : "Register Patient") : (isEditingAdmission ? "Save Admission Changes" : "Confirm Admission")}</button>
+      <div class="portal-form-status" aria-live="polite"></div>
+    </form>
+  `;
+}
+
+function createTreatmentFormTemplate(location, record) {
+  return `
+    <div class="portal-form-heading">
+      <button class="portal-back-btn" type="button" data-portal-back>&larr; Back to Admitted Patients</button>
+      <span class="portal-eyebrow">Clinical care</span>
+      <h3>Edit Treatment Plan</h3>
+      <p>${record.fullName} &bull; ${record.id}</p>
+    </div>
+    <form class="portal-form" id="treatment-plan-form">
+      <div class="portal-form-section">
+        <h4>Treatment Details</h4>
+        <div class="portal-form-grid portal-form-grid-wide">
+          <label>Treatment Plan<textarea name="treatmentPlan" rows="6" placeholder="Describe the ongoing treatment plan">${record.treatmentPlan || ""}</textarea></label>
+          <label>Medicines<textarea name="medicines" rows="6" placeholder="List medicines and dosage instructions">${record.medicines || ""}</textarea></label>
+          <label>Injections<textarea name="injections" rows="4" placeholder="List injections, dosage, and schedule">${record.injections || ""}</textarea></label>
+          <label>Blood Tests<textarea name="bloodTests" rows="4" placeholder="List required blood tests and results">${record.bloodTests || ""}</textarea></label>
+          <label>Other Tests<textarea name="otherTests" rows="4" placeholder="List scans or other tests">${record.otherTests || ""}</textarea></label>
+        </div>
+      </div>
+      <button class="portal-final-btn" type="submit">Save Treatment Plan</button>
+      <div class="portal-form-status" aria-live="polite"></div>
+    </form>
+  `;
+}
+
+function createPortalRecordId(prefix) {
+  return `${prefix}-${new Date().getFullYear()}-${Date.now().toString().slice(-6)}`;
+}
+
+function savePortalRecord(storageKey, record) {
+  const records = JSON.parse(localStorage.getItem(storageKey) || "[]");
+  records.push(record);
+  localStorage.setItem(storageKey, JSON.stringify(records));
+}
+
+function updatePortalRecord(storageKey, recordId, updates) {
+  const records = JSON.parse(localStorage.getItem(storageKey) || "[]");
+  const updatedRecords = records.map((record) => record.id === recordId ? { ...record, ...updates } : record);
+  localStorage.setItem(storageKey, JSON.stringify(updatedRecords));
+}
+
+function deletePortalRecord(storageKey, recordId) {
+  const records = JSON.parse(localStorage.getItem(storageKey) || "[]");
+  localStorage.setItem(storageKey, JSON.stringify(records.filter((record) => record.id !== recordId)));
+}
+
 function createAuthenticatedBlankViewTemplate(userData) {
+  const defaultLocation = PORTAL_LOCATIONS[0];
+
   return `
     <section class="auth-blank-page">
       <div class="auth-blank-container">
@@ -568,8 +751,23 @@ function createAuthenticatedBlankViewTemplate(userData) {
           </div>
           <button class="btn-portal-signout" id="btn-portal-logout">Sign Out</button>
         </div>
-        <div class="auth-blank-canvas">
-          <!-- Full-page canvas ready for dashboard widgets, patient files, and schedules -->
+        <div class="portal-layout">
+          <aside class="portal-sidebar" aria-label="Care units">
+            <div class="portal-sidebar-heading">
+              <span class="portal-eyebrow">Evercare Portal</span>
+              <h3>Care Units</h3>
+            </div>
+            <nav class="portal-location-list">
+              ${PORTAL_LOCATIONS.map((location) => `
+                <button class="portal-location-btn ${location.id === defaultLocation.id ? "active" : ""} ${location.id === "trauma-center" ? "emergency" : ""}" type="button" data-location-id="${location.id}" aria-pressed="${location.id === defaultLocation.id}">
+                  <span>${location.label}</span><span class="portal-location-arrow">&rsaquo;</span>
+                </button>
+              `).join("")}
+            </nav>
+          </aside>
+          <section class="auth-blank-canvas" id="portal-content" aria-live="polite">
+            ${createPortalLocationTemplate(defaultLocation)}
+          </section>
         </div>
       </div>
     </section>
@@ -585,6 +783,136 @@ function renderAuthenticatedBlankPage(userData) {
   document.getElementById("btn-portal-logout")?.addEventListener("click", () => {
     removeAuthToken();
     renderHome();
+  });
+
+  document.querySelectorAll(".portal-location-btn").forEach((button) => {
+    button.addEventListener("click", () => {
+      const selectedLocation = PORTAL_LOCATIONS.find((location) => location.id === button.dataset.locationId);
+      if (!selectedLocation) return;
+
+      document.querySelectorAll(".portal-location-btn").forEach((locationButton) => {
+        const isSelected = locationButton === button;
+        locationButton.classList.toggle("active", isSelected);
+        locationButton.setAttribute("aria-pressed", String(isSelected));
+      });
+      document.getElementById("portal-content").innerHTML = createPortalLocationTemplate(selectedLocation);
+    });
+  });
+
+  const portalContent = document.getElementById("portal-content");
+  portalContent?.addEventListener("click", (event) => {
+    const actionButton = event.target.closest("[data-portal-action]");
+    const backButton = event.target.closest("[data-portal-back]");
+    const payButton = event.target.closest("[data-pay-form]");
+    const recordPaymentButton = event.target.closest("[data-record-payment]");
+    const dischargeButton = event.target.closest("[data-record-discharge]");
+    const editButton = event.target.closest("[data-record-edit]");
+    const deleteButton = event.target.closest("[data-record-delete]");
+    const treatmentEditButton = event.target.closest("[data-treatment-edit]");
+    const admissionEditButton = event.target.closest("[data-admission-edit]");
+    const filterButton = event.target.closest("[data-record-period]");
+    const selectedButton = document.querySelector(".portal-location-btn.active");
+    const selectedLocation = PORTAL_LOCATIONS.find((location) => location.id === selectedButton?.dataset.locationId) || PORTAL_LOCATIONS[0];
+
+    if (treatmentEditButton || admissionEditButton) {
+      const recordId = treatmentEditButton?.dataset.treatmentEdit || admissionEditButton?.dataset.admissionEdit;
+      const records = JSON.parse(localStorage.getItem("evercare_admissions") || "[]");
+      const record = records.find((item) => item.id === recordId);
+      if (record) {
+        portalContent.innerHTML = treatmentEditButton
+          ? createTreatmentFormTemplate(selectedLocation, record)
+          : createPortalFormTemplate("admission-edit", selectedLocation, record);
+        portalContent.querySelector("form").dataset.editingId = recordId;
+      }
+    } else if (recordPaymentButton) {
+      const recordRow = recordPaymentButton.closest(".portal-record-row");
+      recordPaymentButton.disabled = true;
+      recordPaymentButton.textContent = "Paid / No Due";
+      recordPaymentButton.classList.add("paid");
+      recordRow.querySelector("[data-record-discharge]").disabled = false;
+      recordRow.querySelector("[data-record-discharge]").textContent = "Discharge (No Due Payment)";
+      const admissions = JSON.parse(localStorage.getItem("evercare_admissions") || "[]");
+      localStorage.setItem("evercare_admissions", JSON.stringify(admissions.map((record) => record.id === recordPaymentButton.dataset.recordPayment ? { ...record, paymentCleared: true } : record)));
+    } else if (dischargeButton) {
+      const admissions = JSON.parse(localStorage.getItem("evercare_admissions") || "[]");
+      localStorage.setItem("evercare_admissions", JSON.stringify(admissions.filter((record) => record.id !== dischargeButton.dataset.recordDischarge)));
+      dischargeButton.closest(".portal-record-row").remove();
+    } else if (editButton || deleteButton) {
+      const recordId = editButton?.dataset.recordEdit || deleteButton?.dataset.recordDelete;
+      const records = JSON.parse(localStorage.getItem("evercare_patient_records") || "[]");
+      const record = records.find((item) => item.id === recordId);
+      if (editButton && record) {
+        portalContent.innerHTML = createPortalFormTemplate("register", selectedLocation, record);
+        portalContent.querySelector("form").dataset.editingId = recordId;
+        portalContent.querySelector("form").dataset.paymentComplete = "true";
+        portalContent.querySelector(".portal-pay-btn").disabled = true;
+        portalContent.querySelector(".portal-pay-btn").textContent = "Payment Complete";
+        portalContent.querySelector(".portal-payment-status").textContent = "Payment received";
+        portalContent.querySelector(".portal-payment-status").classList.add("paid");
+        portalContent.querySelector(".portal-final-btn").disabled = false;
+      } else if (deleteButton) {
+        deletePortalRecord("evercare_patient_records", recordId);
+        deleteButton.closest(".portal-record-row").remove();
+      }
+    } else if (filterButton) {
+      portalContent.innerHTML = createPortalRecordsTemplate(filterButton.dataset.recordType, selectedLocation, filterButton.dataset.recordPeriod);
+    } else if (actionButton && ["register", "admission"].includes(actionButton.dataset.portalAction)) {
+      portalContent.innerHTML = createPortalFormTemplate(actionButton.dataset.portalAction, selectedLocation);
+    } else if (actionButton && ["admitted-list", "registered-list"].includes(actionButton.dataset.portalAction)) {
+      portalContent.innerHTML = createPortalRecordsTemplate(actionButton.dataset.portalAction, selectedLocation);
+    } else if (backButton) {
+      portalContent.innerHTML = createPortalLocationTemplate(selectedLocation);
+    } else if (payButton) {
+      const form = payButton.closest("form");
+      form.dataset.paymentComplete = "true";
+      form.querySelector(".portal-final-btn").disabled = false;
+      payButton.disabled = true;
+      payButton.textContent = "Payment Complete";
+      form.querySelector(".portal-payment-status").textContent = "Payment received";
+      form.querySelector(".portal-payment-status").classList.add("paid");
+    }
+  });
+
+  portalContent?.addEventListener("change", (event) => {
+    if (!["admission-room-type", "admission-diet", "admission-stay"].includes(event.target.id)) return;
+    const roomPrices = { "8-bed": 5000, "4-bed": 6500, single: 8000 };
+    const form = event.target.closest("form");
+    const roomType = form.querySelector("#admission-room-type").value;
+    const diet = form.querySelector("#admission-diet").value;
+    const days = Number(form.querySelector("#admission-stay").value) || 0;
+    const total = (roomPrices[roomType] + (diet === "Non-vegetarian" ? 200 : 0)) * days;
+    form.querySelector("#admission-payment-amount").textContent = days ? `INR ${total.toLocaleString("en-IN")} total for ${days} day${days === 1 ? "" : "s"}` : "Select stay duration for total";
+  });
+
+  portalContent?.addEventListener("submit", (event) => {
+    const form = event.target.closest("form");
+    if (!form) return;
+    event.preventDefault();
+    const status = form.querySelector(".portal-form-status");
+    if (!form.dataset.editingId && form.dataset.paymentComplete !== "true") {
+      status.textContent = "Complete payment before submitting this form.";
+      status.className = "portal-form-status error";
+      return;
+    }
+
+    const formData = Object.fromEntries(new FormData(form).entries());
+    const isRegistration = form.id === "patient-registration-form";
+    const isTreatmentUpdate = form.id === "treatment-plan-form";
+    if (!isRegistration && !isTreatmentUpdate && (!formData.stay || Number(formData.stay) < 1)) return;
+    const recordId = createPortalRecordId(isRegistration ? "EVR" : "EVA");
+    if (!isRegistration && !isTreatmentUpdate) {
+      const roomPrices = { "8-bed": 5000, "4-bed": 6500, single: 8000 };
+      formData.paymentAmount = roomPrices[formData.roomType] + (formData.diet === "Non-vegetarian" ? 200 : 0);
+    }
+    const storageKey = isRegistration ? "evercare_patient_records" : "evercare_admissions";
+    if (form.dataset.editingId) {
+      updatePortalRecord(storageKey, form.dataset.editingId, formData);
+    } else {
+      savePortalRecord(storageKey, { id: recordId, ...formData, paymentCleared: false, createdAt: new Date().toISOString() });
+    }
+    status.textContent = isTreatmentUpdate ? "Treatment plan and medicines updated successfully." : isRegistration ? `Patient registered successfully. Registration ID: ${recordId}` : `Admission confirmed successfully. Admission ID: ${recordId}`;
+    status.className = "portal-form-status success";
+    if (!isTreatmentUpdate) form.querySelector(".portal-final-btn").disabled = true;
   });
 }
 
