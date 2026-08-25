@@ -1,4 +1,4 @@
-// Data Models
+// --- Data Models ---
 const SLIDES_DATA = [
   {
     image: "https://images.unsplash.com/photo-1587351021759-3e566b6af7cc?auto=format&fit=crop&w=1600&q=80",
@@ -61,7 +61,7 @@ const PATIENTS_GUIDE_LIST = [
   },
   {
     title: "OPD Patient Guidelines",
-    desc: "First-time patients must register at the central reception by providing a valid government identity card (such as Aadhaar Card, PAN Card, Voter ID, or Ration Card), open a new patient record file, and pay the registration fees. Returning/old patients can directly proceed to their respective OPD for consultation, follow-up opinions, or ongoing treatment."
+    desc: "First-time patients must register at the central reception by providing a valid government identity card (such as Identity Proof, PAN Card, Voter ID, or Ration Card), open a new patient record file, and pay the registration fees. Returning/old patients can directly proceed to their respective OPD for consultation, follow-up opinions, or ongoing treatment."
   },
   {
     title: "Inpatient Admission Protocol",
@@ -152,7 +152,6 @@ const INVENTORIES_LIST = [
   }
 ];
 
-// Navigation Drawer Items Structure
 const DRAWER_ITEMS = [
   { id: "drawer-btn-home", label: "Home", interactive: true },
   { id: "drawer-btn-departments", label: "Departments", interactive: true },
@@ -164,15 +163,94 @@ const DRAWER_ITEMS = [
   { id: "drawer-btn-contact-us", label: "Contact Us", interactive: true }
 ];
 
-// App State & Mounting
+// --- User Storage & Default Account ---
+const DEFAULT_ACCOUNT = {
+  email: "singhvj1609@gmail.com",
+  password: "root@1234",
+  name: "Vijay Singh",
+  age: 22,
+  phone: "9820112233",
+  department: "Cardiology"
+};
+
+function getRegisteredUsers() {
+  const users = localStorage.getItem("evercare_users");
+  if (!users) {
+    const initialUsers = [DEFAULT_ACCOUNT];
+    localStorage.setItem("evercare_users", JSON.stringify(initialUsers));
+    return initialUsers;
+  }
+  return JSON.parse(users);
+}
+
+function saveUser(user) {
+  const users = getRegisteredUsers();
+  users.push(user);
+  localStorage.setItem("evercare_users", JSON.stringify(users));
+}
+
+// Multi-step Registration State
+let regState = {
+  step: 1,
+  data: { email: "", name: "", age: "", phone: "", department: "" },
+  generatedOtp: null
+};
+
+// Password Policy Validation (Min 10 chars, uppercase, lowercase, digit, special char)
+function validateStrongPassword(password) {
+  const minLength = 10;
+  const hasUpperCase = /[A-Z]/.test(password);
+  const hasLowerCase = /[a-z]/.test(password);
+  const hasDigit = /[0-9]/.test(password);
+  const hasSpecialChar = /[!@#$%^&*()_+\-=\[\]{};':"\\|,.<>\/?]/.test(password);
+
+  if (password.length < minLength) {
+    return { valid: false, message: "Password must be at least 10 characters long." };
+  }
+  if (!hasUpperCase) {
+    return { valid: false, message: "Password must include at least one uppercase letter (A-Z)." };
+  }
+  if (!hasLowerCase) {
+    return { valid: false, message: "Password must include at least one lowercase letter (a-z)." };
+  }
+  if (!hasDigit) {
+    return { valid: false, message: "Password must include at least one numerical digit (0-9)." };
+  }
+  if (!hasSpecialChar) {
+    return { valid: false, message: "Password must include at least one special character (!@#$%^&* etc.)." };
+  }
+
+  return { valid: true, message: "" };
+}
+
+// JWT Token Utilities
+function setAuthToken(token) {
+  localStorage.setItem("evercare_jwt_token", token);
+}
+
+function getAuthToken() {
+  return localStorage.getItem("evercare_jwt_token");
+}
+
+function removeAuthToken() {
+  localStorage.removeItem("evercare_jwt_token");
+}
+
+function generateMockJWT(payload) {
+  const header = btoa(JSON.stringify({ alg: "HS256", typ: "JWT" }));
+  const body = btoa(JSON.stringify({ ...payload, exp: Math.floor(Date.now() / 1000) + 3600 }));
+  const signature = btoa("evercare_secure_signature");
+  return `${header}.${body}.${signature}`;
+}
+
+// App State
 const appRoot = document.getElementById("app-root");
 let activeIndex = 0;
 let autoPlayTimer = null;
 
-// Helper: Update Navigation Header Active State
 function setActiveNavButton(activeId) {
   const navButtons = ["btn-home", "btn-departments", "btn-patients-guide", "btn-discover", "btn-research"];
-  navButtons.forEach(id => {
+  navButtons.forEach((id) => {
     const btn = document.getElementById(id);
     if (btn) {
       if (id === activeId) {
@@ -184,7 +262,7 @@ function setActiveNavButton(activeId) {
   });
 }
 
-// Template Generators
+// --- Dynamic Templates ---
 function createHomeViewTemplate() {
   const slidesHTML = SLIDES_DATA.map((slide, idx) => `
     <div class="slide ${idx === 0 ? "active" : ""}" data-index="${idx}">
@@ -347,7 +425,170 @@ function createInventoriesViewTemplate() {
   `;
 }
 
-// Drawer Injection
+// --- Auth Views Templates ---
+function createSignInViewTemplate() {
+  return `
+    <div class="auth-wrapper">
+      <div class="auth-card">
+        <h2>Sign In</h2>
+        <p class="auth-subtitle">Access your Evercare patient portal</p>
+        <form id="signin-form" class="auth-form">
+          <div class="auth-group">
+            <label for="signin-email">Email Address</label>
+            <input type="email" id="signin-email" placeholder="e.g. singhvj1609@gmail.com" required autocomplete="username">
+          </div>
+          <div class="auth-group">
+            <label for="signin-password">Password</label>
+            <input type="password" id="signin-password" placeholder="••••••••" required autocomplete="current-password">
+          </div>
+          <button type="submit" class="btn-auth-submit">Sign In</button>
+          <div id="auth-status" class="auth-status-msg"></div>
+        </form>
+        <p class="auth-switch-text">
+          New user? <button class="auth-switch-btn" id="btn-goto-register">Register Now</button>
+        </p>
+      </div>
+    </div>
+  `;
+}
+
+function createRegisterStep1Template() {
+  const departmentOptions = DEPARTMENT_LIST.map((d) => `
+    <option value="${d.name}" ${regState.data.department === d.name ? "selected" : ""}>${d.name}</option>
+  `).join("");
+
+  return `
+    <div class="auth-wrapper">
+      <div class="auth-card">
+        <div class="step-indicator">Step 1 of 3: Personal & Department Details</div>
+        <h2>Create Account</h2>
+        <p class="auth-subtitle">Enter your profile information</p>
+        <form id="register-step1-form" class="auth-form">
+          <div class="auth-group">
+            <label for="reg-email">Email Address</label>
+            <input type="email" id="reg-email" value="${regState.data.email}" placeholder="name@example.com" required>
+          </div>
+          <div class="auth-group">
+            <label for="reg-name">Full Name</label>
+            <input type="text" id="reg-name" value="${regState.data.name}" placeholder="Rohan Sharma" required>
+          </div>
+          <div class="auth-group">
+            <label for="reg-department">Select Department</label>
+            <select id="reg-department" required>
+              <option value="" disabled ${!regState.data.department ? "selected" : ""}>Select Preferred Department</option>
+              ${departmentOptions}
+            </select>
+          </div>
+          <div class="auth-row">
+            <div class="auth-group" style="flex: 1;">
+              <label for="reg-age">Age</label>
+              <input type="number" id="reg-age" value="${regState.data.age}" min="1" max="120" placeholder="28" required>
+            </div>
+            <div class="auth-group" style="flex: 2;">
+              <label for="reg-phone">Mobile Number</label>
+              <input type="tel" id="reg-phone" value="${regState.data.phone}" placeholder="9876543210" pattern="[0-9]{10}" required>
+            </div>
+          </div>
+          <button type="submit" class="btn-auth-submit">Send OTP to Email</button>
+          <div id="auth-status" class="auth-status-msg"></div>
+        </form>
+        <p class="auth-switch-text">
+          Already have an account? <button class="auth-switch-btn" id="btn-goto-signin">Sign In</button>
+        </p>
+      </div>
+    </div>
+  `;
+}
+
+function createRegisterStep2Template() {
+  return `
+    <div class="auth-wrapper">
+      <div class="auth-card">
+        <div class="step-indicator">Step 2 of 3: Email Verification</div>
+        <h2>Verify OTP</h2>
+        <p class="auth-subtitle">A 6-digit code has been sent to <strong>${regState.data.email}</strong></p>
+        <div class="otp-notice">For testing, your OTP is: <strong>${regState.generatedOtp}</strong></div>
+        <form id="register-step2-form" class="auth-form">
+          <div class="auth-group">
+            <label for="reg-otp">Enter 6-Digit OTP</label>
+            <input type="text" id="reg-otp" maxlength="6" placeholder="123456" required style="letter-spacing: 4px; text-align: center; font-size: 1.2rem;">
+          </div>
+          <button type="submit" class="btn-auth-submit">Verify & Proceed</button>
+          <button type="button" class="btn-auth-secondary" id="btn-resend-otp">Resend OTP</button>
+          <div id="auth-status" class="auth-status-msg"></div>
+        </form>
+      </div>
+    </div>
+  `;
+}
+
+function createRegisterStep3Template() {
+  return `
+    <div class="auth-wrapper">
+      <div class="auth-card">
+        <div class="step-indicator">Step 3 of 3: Security</div>
+        <h2>Set Secure Password</h2>
+        <p class="auth-subtitle">Password is case-sensitive and must meet complexity criteria</p>
+        <form id="register-step3-form" class="auth-form">
+          <div class="auth-group">
+            <label for="reg-password">Create Password</label>
+            <input type="password" id="reg-password" placeholder="e.g. Evercare@2026Secure" required>
+          </div>
+          <div class="auth-group">
+            <label for="reg-confirm-password">Confirm Password</label>
+            <input type="password" id="reg-confirm-password" placeholder="Repeat exact password" required>
+          </div>
+          <div class="password-guidelines-box">
+            <span class="guide-title">Password must contain:</span>
+            <ul class="guide-list">
+              <li>&bull; Minimum 10 characters</li>
+              <li>&bull; At least one uppercase letter (A-Z)</li>
+              <li>&bull; At least one lowercase letter (a-z)</li>
+              <li>&bull; At least one number (0-9)</li>
+              <li>&bull; At least one special character (!@#$%^&* etc.)</li>
+            </ul>
+          </div>
+          <button type="submit" class="btn-auth-submit">Complete Registration</button>
+          <div id="auth-status" class="auth-status-msg"></div>
+        </form>
+      </div>
+    </div>
+  `;
+}
+
+// --- Authenticated Full-Page Workspace Template ---
+function createAuthenticatedBlankViewTemplate(userData) {
+  return `
+    <section class="auth-blank-page">
+      <div class="auth-blank-container">
+        <div class="auth-welcome-bar">
+          <div>
+            <h2>Welcome Back</h2>
+            <p>Evercare Portal &bull; ${userData?.email || ""} ${userData?.department ? `&bull; Dept: ${userData.department}` : ""}</p>
+          </div>
+          <button class="btn-portal-signout" id="btn-portal-logout">Sign Out</button>
+        </div>
+        <div class="auth-blank-canvas">
+          <!-- Full-page canvas ready for dashboard widgets, patient files, and schedules -->
+        </div>
+      </div>
+    </section>
+  `;
+}
+
+function renderAuthenticatedBlankPage(userData) {
+  clearInterval(autoPlayTimer);
+  document.body.classList.add("auth-mode");
+  appRoot.innerHTML = createAuthenticatedBlankViewTemplate(userData);
+  window.scrollTo({ top: 0, behavior: "smooth" });
+
+  document.getElementById("btn-portal-logout")?.addEventListener("click", () => {
+    removeAuthToken();
+    renderHome();
+  });
+}
+
+// --- Drawer & Slider Helpers ---
 function renderDrawer() {
   const drawerContainer = document.getElementById("drawer-nav-list");
   if (!drawerContainer) return;
@@ -360,7 +601,6 @@ function renderDrawer() {
   `).join("");
 }
 
-// Slider Functionality
 function initSlider() {
   const allSlides = document.querySelectorAll(".slide");
   const allDots = document.querySelectorAll(".dot-btn");
@@ -417,7 +657,6 @@ function initSlider() {
   startSliderAutoPlay();
 }
 
-// Wait for Smooth Scroll to Finish, then trigger Slow Blink
 function navigateAndHighlightContact() {
   const footerContainer = document.querySelector(".bottom-container");
   if (!footerContainer) return;
@@ -431,7 +670,7 @@ function navigateAndHighlightContact() {
       window.removeEventListener("scroll", onScrollEnd);
 
       footerContainer.classList.remove("footer-container-blink");
-      void footerContainer.offsetWidth; // Force DOM reflow
+      void footerContainer.offsetWidth;
       footerContainer.classList.add("footer-container-blink");
     }, 150);
   };
@@ -440,8 +679,9 @@ function navigateAndHighlightContact() {
   scrollTimeout = setTimeout(onScrollEnd, 600);
 }
 
-// Router & View Mount Functions
+// --- Routing Functions ---
 function renderHome() {
+  document.body.classList.remove("auth-mode");
   clearInterval(autoPlayTimer);
   appRoot.innerHTML = createHomeViewTemplate();
   setActiveNavButton("btn-home");
@@ -450,6 +690,7 @@ function renderHome() {
 }
 
 function renderDepartments() {
+  document.body.classList.remove("auth-mode");
   clearInterval(autoPlayTimer);
   appRoot.innerHTML = createDepartmentsViewTemplate();
   setActiveNavButton("btn-departments");
@@ -457,6 +698,7 @@ function renderDepartments() {
 }
 
 function renderPatientsGuide() {
+  document.body.classList.remove("auth-mode");
   clearInterval(autoPlayTimer);
   appRoot.innerHTML = createPatientsGuideViewTemplate();
   setActiveNavButton("btn-patients-guide");
@@ -464,6 +706,7 @@ function renderPatientsGuide() {
 }
 
 function renderAboutUs() {
+  document.body.classList.remove("auth-mode");
   clearInterval(autoPlayTimer);
   appRoot.innerHTML = createAboutUsViewTemplate();
   setActiveNavButton("btn-discover");
@@ -471,13 +714,152 @@ function renderAboutUs() {
 }
 
 function renderInventories() {
+  document.body.classList.remove("auth-mode");
   clearInterval(autoPlayTimer);
   appRoot.innerHTML = createInventoriesViewTemplate();
   setActiveNavButton(null);
   window.scrollTo({ top: 0, behavior: "smooth" });
 }
 
-// Navigation & Events
+// --- Auth Controllers ---
+function renderSignIn() {
+  clearInterval(autoPlayTimer);
+  document.body.classList.add("auth-mode");
+  appRoot.innerHTML = createSignInViewTemplate();
+  window.scrollTo({ top: 0, behavior: "smooth" });
+
+  document.getElementById("btn-goto-register")?.addEventListener("click", () => renderRegisterStep(1));
+
+  const form = document.getElementById("signin-form");
+  form?.addEventListener("submit", (e) => {
+    e.preventDefault();
+    const email = document.getElementById("signin-email").value.trim().toLowerCase();
+    const password = document.getElementById("signin-password").value;
+    const statusBox = document.getElementById("auth-status");
+
+    const users = getRegisteredUsers();
+    const matchedUser = users.find((u) => u.email.toLowerCase() === email && u.password === password);
+
+    if (matchedUser) {
+      const token = generateMockJWT({ sub: matchedUser.email, name: matchedUser.name, role: "patient" });
+      setAuthToken(token);
+
+      statusBox.className = "auth-status-msg success";
+      statusBox.textContent = "Authentication successful! Opening portal...";
+
+      setTimeout(() => {
+        renderAuthenticatedBlankPage(matchedUser);
+      }, 900);
+    } else {
+      statusBox.className = "auth-status-msg error";
+      statusBox.textContent = "Invalid email or password. Passwords are case-sensitive.";
+    }
+  });
+}
+
+function renderRegisterStep(step) {
+  clearInterval(autoPlayTimer);
+  document.body.classList.add("auth-mode");
+
+  if (step === 1) {
+    appRoot.innerHTML = createRegisterStep1Template();
+    document.getElementById("btn-goto-signin")?.addEventListener("click", renderSignIn);
+
+    const form = document.getElementById("register-step1-form");
+    form?.addEventListener("submit", (e) => {
+      e.preventDefault();
+      const email = document.getElementById("reg-email").value.trim();
+      const name = document.getElementById("reg-name").value.trim();
+      const department = document.getElementById("reg-department").value;
+      const age = document.getElementById("reg-age").value.trim();
+      const phone = document.getElementById("reg-phone").value.trim();
+      const statusBox = document.getElementById("auth-status");
+
+      if (!department) {
+        statusBox.className = "auth-status-msg error";
+        statusBox.textContent = "Please select a department.";
+        return;
+      }
+
+      const existingUsers = getRegisteredUsers();
+      if (existingUsers.some((u) => u.email.toLowerCase() === email.toLowerCase())) {
+        statusBox.className = "auth-status-msg error";
+        statusBox.textContent = "An account with this email already exists. Please Sign In.";
+        return;
+      }
+
+      regState.data = { email, name, age, phone, department };
+      regState.generatedOtp = Math.floor(100000 + Math.random() * 900000).toString();
+      renderRegisterStep(2);
+    });
+  } else if (step === 2) {
+    appRoot.innerHTML = createRegisterStep2Template();
+
+    document.getElementById("btn-resend-otp")?.addEventListener("click", () => {
+      regState.generatedOtp = Math.floor(100000 + Math.random() * 900000).toString();
+      renderRegisterStep(2);
+    });
+
+    const form = document.getElementById("register-step2-form");
+    form?.addEventListener("submit", (e) => {
+      e.preventDefault();
+      const enteredOtp = document.getElementById("reg-otp").value.trim();
+      const statusBox = document.getElementById("auth-status");
+
+      if (enteredOtp === regState.generatedOtp) {
+        renderRegisterStep(3);
+      } else {
+        statusBox.className = "auth-status-msg error";
+        statusBox.textContent = "Invalid OTP code. Please check and try again.";
+      }
+    });
+  } else if (step === 3) {
+    appRoot.innerHTML = createRegisterStep3Template();
+
+    const form = document.getElementById("register-step3-form");
+    form?.addEventListener("submit", (e) => {
+      e.preventDefault();
+      const pwd = document.getElementById("reg-password").value;
+      const confirmPwd = document.getElementById("reg-confirm-password").value;
+      const statusBox = document.getElementById("auth-status");
+
+      // Password Complexity Validation
+      const validation = validateStrongPassword(pwd);
+      if (!validation.valid) {
+        statusBox.className = "auth-status-msg error";
+        statusBox.textContent = validation.message;
+        return;
+      }
+
+      if (pwd !== confirmPwd) {
+        statusBox.className = "auth-status-msg error";
+        statusBox.textContent = "Passwords do not match. Please verify case sensitivity.";
+        return;
+      }
+
+      const newUser = {
+        ...regState.data,
+        password: pwd
+      };
+      saveUser(newUser);
+
+      const token = generateMockJWT({ sub: newUser.email, name: newUser.name, role: "patient" });
+      setAuthToken(token);
+
+      statusBox.className = "auth-status-msg success";
+      statusBox.textContent = "Account verified & registered successfully! Opening portal...";
+
+      const registeredUser = { ...newUser };
+      regState = { step: 1, data: { email: "", name: "", age: "", phone: "", department: "" }, generatedOtp: null };
+
+      setTimeout(() => {
+        renderAuthenticatedBlankPage(registeredUser);
+      }, 1000);
+    });
+  }
+}
+
+// --- Event Binding ---
 function initAppEvents() {
   renderDrawer();
 
@@ -486,6 +868,7 @@ function initAppEvents() {
   document.getElementById("btn-discover")?.addEventListener("click", renderAboutUs);
   document.getElementById("btn-departments")?.addEventListener("click", renderDepartments);
   document.getElementById("btn-patients-guide")?.addEventListener("click", renderPatientsGuide);
+  document.getElementById("btn-signin")?.addEventListener("click", renderSignIn);
   document.getElementById("header-logo-btn")?.addEventListener("click", renderHome);
   document.getElementById("footer-logo-btn")?.addEventListener("click", renderHome);
   document.getElementById("footer-link-home")?.addEventListener("click", renderHome);
@@ -510,14 +893,14 @@ function initAppEvents() {
   drawerCloseBtn?.addEventListener("click", closeDrawer);
   navDrawerBackdrop?.addEventListener("click", closeDrawer);
 
-  // Drawer Nav Button Actions
+  // Drawer Buttons
   document.getElementById("drawer-btn-home")?.addEventListener("click", () => { closeDrawer(); renderHome(); });
   document.getElementById("drawer-btn-departments")?.addEventListener("click", () => { closeDrawer(); renderDepartments(); });
   document.getElementById("drawer-btn-inventories")?.addEventListener("click", () => { closeDrawer(); renderInventories(); });
   document.getElementById("drawer-btn-patients-corner")?.addEventListener("click", () => { closeDrawer(); renderPatientsGuide(); });
   document.getElementById("drawer-btn-about-us")?.addEventListener("click", () => { closeDrawer(); renderAboutUs(); });
 
-  // Contact Us Buttons (Header & Navigation Drawer)
+  // Contact Us Buttons
   document.getElementById("btn-contact-us")?.addEventListener("click", () => {
     navigateAndHighlightContact();
   });
@@ -555,7 +938,7 @@ function initAppEvents() {
   setInterval(updateLiveTimestamp, 1000);
 }
 
-// Initialize Application
+// Initial Boot
 document.addEventListener("DOMContentLoaded", () => {
   initAppEvents();
   renderHome();

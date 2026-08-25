@@ -21,7 +21,7 @@
   </aside>
 
   <!-- Main Top Header -->
-  <header class="top-header">
+  <header class="top-header" id="main-header">
     <div class="header-top-row">
       <button class="interactive-logo-btn" id="header-logo-btn" type="button" aria-label="Evercare Hospital Logo">
         <svg viewBox="0 0 100 100" fill="none" xmlns="http://www.w3.org/2000/svg">
@@ -45,7 +45,8 @@
       </div>
     </div>
 
-    <div class="div-buttons-container">
+    <!-- Navigation elements hidden in auth and portal mode -->
+    <div class="div-buttons-container hide-on-auth">
       <button class="div-btn nav-active" id="btn-home" type="button">Home</button>
       <button class="div-btn" id="btn-discover" type="button">Discover</button>
       <button class="div-btn" id="btn-departments" type="button">Departments</button>
@@ -59,7 +60,7 @@
       </select>
     </div>
 
-    <div class="header-bottom-row">
+    <div class="header-bottom-row hide-on-auth">
       <button class="nav-toggle-btn" id="nav-toggle-btn" type="button" aria-label="Open navigation menu">
         <span></span>
         <span></span>
@@ -73,7 +74,7 @@
   </header>
 
   <!-- Moving Notification Bar -->
-  <div class="ticker-wrap">
+  <div class="ticker-wrap hide-on-auth" id="main-ticker">
     <div class="ticker-move">
       <span class="ticker-text">🚨 Our personal 24*7 ambulance and helpline number: 1088 🚨 &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;</span>
     </div>
@@ -83,7 +84,7 @@
   <main id="app-root"></main>
 
   <!-- Bottom Footer -->
-  <footer class="bottom-container">
+  <footer class="bottom-container hide-on-auth" id="main-footer">
     <div class="bottom-flexbox">
       <div class="bottom-col bottom-col-left">
         <button class="interactive-logo-btn" id="footer-logo-btn" type="button" aria-label="Evercare Hospital Logo">
