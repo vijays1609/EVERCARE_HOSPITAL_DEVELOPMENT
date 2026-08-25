@@ -1,0 +1,140 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Evercare Hospital - Advanced Multispeciality Care</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+  <!-- Left-aligned Slide-out Navigation Drawer -->
+  <div class="nav-drawer-backdrop" id="nav-drawer-backdrop"></div>
+  <aside class="nav-drawer" id="nav-drawer">
+    <div class="drawer-header">
+      <span class="drawer-title">Navigation Menu</span>
+      <button class="drawer-close-btn" id="drawer-close-btn" aria-label="Close menu">&times;</button>
+    </div>
+    <ul class="drawer-nav-list" id="drawer-nav-list">
+      <!-- Injected via JavaScript -->
+    </ul>
+  </aside>
+
+  <!-- Main Top Header -->
+  <header class="top-header">
+    <div class="header-top-row">
+      <button class="interactive-logo-btn" id="header-logo-btn" type="button" aria-label="Evercare Hospital Logo">
+        <svg viewBox="0 0 100 100" fill="none" xmlns="http://www.w3.org/2000/svg">
+          <circle cx="50" cy="50" r="46" stroke="#0369a1" stroke-width="5" fill="#ffffff" />
+          <path d="M50 18V82M18 50H82" stroke="#0284c7" stroke-width="12" stroke-linecap="round" />
+          <path class="ecg-line" d="M26 50H38L44 34L54 66L60 50H74" stroke="#dc2626" stroke-width="4.5" stroke-linecap="round" stroke-linejoin="round" />
+        </svg>
+        <div class="logo-text-block">
+          <span class="logo-main-text">EVERCARE</span>
+          <span class="logo-sub-text">HOSPITAL</span>
+        </div>
+      </button>
+
+      <div class="title-wrapper">
+        <h1 class="hospital-title">Evercare Hospital</h1>
+        <p class="hospital-motto">Advanced Medicine. Trusted Care. Lifelong Healing.</p>
+      </div>
+
+      <div class="helpline">
+        <span>Emergency:</span> 108
+      </div>
+    </div>
+
+    <div class="div-buttons-container">
+      <button class="div-btn nav-active" id="btn-home" type="button">Home</button>
+      <button class="div-btn" id="btn-discover" type="button">Discover</button>
+      <button class="div-btn" id="btn-departments" type="button">Departments</button>
+      <button class="div-btn" id="btn-patients-guide" type="button">Patient's Guide</button>
+      <button class="div-btn" id="btn-research" type="button">Publication & Research</button>
+      <select class="div-btn-select" id="select-language" aria-label="Language selection">
+        <option value="en">🌐 English</option>
+        <option value="hi">हिंदी (Hindi)</option>
+        <option value="mr">मराठी (Marathi)</option>
+        <option value="es">Español</option>
+      </select>
+    </div>
+
+    <div class="header-bottom-row">
+      <button class="nav-toggle-btn" id="nav-toggle-btn" type="button" aria-label="Open navigation menu">
+        <span></span>
+        <span></span>
+        <span></span>
+      </button>
+      <div class="header-action-group">
+        <button class="btn-header-action" id="btn-contact-us" type="button">Contact us</button>
+        <button class="btn-header-action" id="btn-signin" type="button">Sign In</button>
+      </div>
+    </div>
+  </header>
+
+  <!-- Moving Notification Bar -->
+  <div class="ticker-wrap">
+    <div class="ticker-move">
+      <span class="ticker-text">🚨 Our personal 24*7 ambulance and helpline number: 1088 🚨 &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;</span>
+    </div>
+  </div>
+
+  <!-- Dynamic Application Mount Point -->
+  <main id="app-root"></main>
+
+  <!-- Bottom Footer -->
+  <footer class="bottom-container">
+    <div class="bottom-flexbox">
+      <div class="bottom-col bottom-col-left">
+        <button class="interactive-logo-btn" id="footer-logo-btn" type="button" aria-label="Evercare Hospital Logo">
+          <svg viewBox="0 0 100 100" fill="none" xmlns="http://www.w3.org/2000/svg">
+            <circle cx="50" cy="50" r="46" stroke="#0369a1" stroke-width="5" fill="#ffffff" />
+            <path d="M50 18V82M18 50H82" stroke="#0284c7" stroke-width="12" stroke-linecap="round" />
+            <path class="ecg-line" d="M26 50H38L44 34L54 66L60 50H74" stroke="#dc2626" stroke-width="4.5" stroke-linecap="round" stroke-linejoin="round" />
+          </svg>
+          <div class="logo-text-block">
+            <span class="logo-main-text">EVERCARE</span>
+            <span class="logo-sub-text">HOSPITAL</span>
+          </div>
+        </button>
+      </div>
+
+      <div class="bottom-col"></div>
+      <div class="bottom-col"></div>
+
+      <div class="bottom-col bottom-col-right">
+        <span class="bottom-helpline-text">Helpline Number: 1088</span>
+      </div>
+
+      <div class="bottom-col bottom-col-left">
+        <button class="bottom-text-btn" id="footer-link-home" type="button">home</button>
+      </div>
+
+      <div class="bottom-col bottom-col-left">
+        <button class="bottom-text-btn" id="footer-link-disclaimer" type="button">disclaimer</button>
+      </div>
+
+      <div class="bottom-col bottom-col-left">
+        <button class="bottom-text-btn" id="footer-link-terms" type="button">terms & condition</button>
+      </div>
+
+      <div class="bottom-col bottom-col-right">
+        <span class="bottom-update-text" id="live-last-update">last update: </span>
+      </div>
+    </div>
+
+    <div class="bottom-contact-bar">
+      <div class="footer-loc-left">
+        <span>📍</span>
+        <span>EverCare Hospital Campus, Dr. Ernest Borges Road, Parel, Mumbai, Maharashtra 400012</span>
+      </div>
+      <div class="footer-contact-right">
+        <span>📞</span>
+        <span><a href="tel:+912224177000" class="contact-link">+91-22-24177000</a>, <a href="tel:+912224177300" class="contact-link">24177300</a></span>
+      </div>
+    </div>
+  </footer>
+
+  <script src="script.js"></script>
+</body>
+</html>
