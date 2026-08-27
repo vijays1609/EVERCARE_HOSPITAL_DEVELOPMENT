@@ -236,6 +236,24 @@ function removeAuthToken() {
   localStorage.removeItem("evercare_jwt_token");
 }
 
+function getAuthenticatedUser() {
+  const token = getAuthToken();
+  if (!token) return null;
+
+  try {
+    const payload = JSON.parse(atob(token.split(".")[1]));
+    if (!payload.exp || payload.exp <= Math.floor(Date.now() / 1000)) {
+      removeAuthToken();
+      return null;
+    }
+
+    return getRegisteredUsers().find((user) => user.email.toLowerCase() === payload.sub.toLowerCase()) || null;
+  } catch {
+    removeAuthToken();
+    return null;
+  }
+}
+
 function generateMockJWT(payload) {
   const header = btoa(JSON.stringify({ alg: "HS256", typ: "JWT" }));
   const body = btoa(JSON.stringify({ ...payload, exp: Math.floor(Date.now() / 1000) + 3600 }));
@@ -770,6 +788,16 @@ function createAuthenticatedBlankViewTemplate(userData) {
           </section>
         </div>
       </div>
+      <div class="signout-dialog-backdrop" id="signout-dialog" hidden>
+        <div class="signout-dialog" role="dialog" aria-modal="true" aria-labelledby="signout-dialog-title">
+          <h2 id="signout-dialog-title">Are you sure you want to sign out?</h2>
+          <p>Your portal session will end on this device.</p>
+          <div class="signout-dialog-actions">
+            <button class="signout-cancel-btn" id="signout-cancel-btn" type="button">Cancel</button>
+            <button class="signout-confirm-btn" id="signout-confirm-btn" type="button">Continue</button>
+          </div>
+        </div>
+      </div>
     </section>
   `;
 }
@@ -780,9 +808,26 @@ function renderAuthenticatedBlankPage(userData) {
   appRoot.innerHTML = createAuthenticatedBlankViewTemplate(userData);
   window.scrollTo({ top: 0, behavior: "smooth" });
 
+  const signoutDialog = document.getElementById("signout-dialog");
+  if (signoutDialog) document.body.appendChild(signoutDialog);
+  const closeSignoutDialog = () => {
+    if (signoutDialog) signoutDialog.hidden = true;
+  };
+
   document.getElementById("btn-portal-logout")?.addEventListener("click", () => {
+    if (signoutDialog) signoutDialog.hidden = false;
+  });
+
+  document.getElementById("signout-cancel-btn")?.addEventListener("click", closeSignoutDialog);
+  document.getElementById("signout-confirm-btn")?.addEventListener("click", () => {
     removeAuthToken();
     renderHome();
+  });
+  signoutDialog?.addEventListener("click", (event) => {
+    if (event.target === signoutDialog) closeSignoutDialog();
+  });
+  document.addEventListener("keydown", (event) => {
+    if (event.key === "Escape" && signoutDialog && !signoutDialog.hidden) closeSignoutDialog();
   });
 
   document.querySelectorAll(".portal-location-btn").forEach((button) => {
@@ -1009,6 +1054,7 @@ function navigateAndHighlightContact() {
 
 // --- Routing Functions ---
 function renderHome() {
+  document.getElementById("signout-dialog")?.remove();
   document.body.classList.remove("auth-mode");
   clearInterval(autoPlayTimer);
   appRoot.innerHTML = createHomeViewTemplate();
@@ -1269,5 +1315,10 @@ function initAppEvents() {
 // Initial Boot
 document.addEventListener("DOMContentLoaded", () => {
   initAppEvents();
-  renderHome();
+  const authenticatedUser = getAuthenticatedUser();
+  if (authenticatedUser) {
+    renderAuthenticatedBlankPage(authenticatedUser);
+  } else {
+    renderHome();
+  }
 });
