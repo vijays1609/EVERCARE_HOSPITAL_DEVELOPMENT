@@ -50,7 +50,9 @@ export async function startServer(env = process.env) {
   await bootstrapStaffAccount(env);
   const server = createApiServer({ authDb, clinicalDb, env });
   const port = Number(env.PORT) || 3001;
-  const host = env.HOST || "127.0.0.1";
+  const host = env.HOST || "0.0.0.0";
+  //const port = Number(env.PORT) || 3001;
+  //const host = env.HOST || "127.0.0.1";
   await new Promise((resolveListen, rejectListen) => {
     server.once("error", rejectListen);
     server.listen(port, host, () => {
