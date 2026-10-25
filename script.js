@@ -2,8 +2,8 @@
 window.addEventListener("submit", (e) => {
   e.preventDefault();
 });
-
-const API_BASE_URL = window.EVERCARE_API_BASE_URL || "http://127.0.0.1:5000";
+const API_BASE_URL = window.EVERCARE_API_BASE_URL || "https://evercare-hospital-development.onrender.com";
+//const API_BASE_URL = window.EVERCARE_API_BASE_URL || "http://127.0.0.1:5000";
 
 async function requestApi(path, { method = "GET", body, token } = {}) {
   const headers = {};
