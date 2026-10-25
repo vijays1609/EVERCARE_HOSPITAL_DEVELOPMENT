@@ -1,3 +1,49 @@
+// Safe submission handler: prevents full page reload without killing bubbling
+window.addEventListener("submit", (e) => {
+  e.preventDefault();
+});
+
+const API_BASE_URL = window.EVERCARE_API_BASE_URL || "http://127.0.0.1:5000";
+
+async function requestApi(path, { method = "GET", body, token } = {}) {
+  const headers = {};
+  if (body) headers["Content-Type"] = "application/json";
+  if (token) headers.Authorization = `Bearer ${token}`;
+
+  const candidateUrls = ["http://127.0.0.1:5000", "http://127.0.0.1:3001"];
+  let response;
+
+  for (const baseUrl of candidateUrls) {
+    try {
+      response = await fetch(`${baseUrl}${path}`, {
+        method,
+        headers,
+        body: body ? JSON.stringify(body) : undefined,
+        cache: "no-store",
+      });
+      if (response) break;
+    } catch {
+      // try fallback port
+    }
+  }
+
+  if (!response) {
+    throw new Error(
+      "The service is unavailable. Ensure your backend server is running.",
+    );
+  }
+
+  const result = await response.json().catch(() => ({}));
+  if (!response.ok) {
+    throw new Error(
+      result.error?.message ||
+        result.message ||
+        "The request could not be completed.",
+    );
+  }
+  return result;
+}
+
 // --- Data Models ---
 const SLIDES_DATA = [
   {
@@ -27,6 +73,43 @@ const SLIDES_DATA = [
     desc: "A dedicated ecosystem of veteran physicians, certified nurses, patient assistants, and professional hygienists maintaining sterile, HEPA-filtered wards for complete recovery.",
   },
 ];
+
+const DISCOVER_SLIDES = [
+  {
+    image: "images/hospital-campus.jpg",
+    alt: "Illustrative photo of a modern hospital campus",
+    caption: "A calm, connected campus",
+  },
+  {
+    image: "images/doctor-patient.jpg",
+    alt: "Illustrative photo of a doctor speaking with a patient",
+    caption: "Care that starts with listening",
+  },
+  {
+    image: "images/hospital-interior.jpg",
+    alt: "Illustrative photo of a bright, modern clinical space",
+    caption: "Thoughtful spaces for better care",
+  },
+];
+
+const DEPARTMENT_ART = {
+  Cardiology: "heart",
+  Neurology: "brain",
+  "Obstetrics & Gynaecology": "maternal",
+  Oncology: "ribbon",
+  Dermatology: "skin",
+  Ophthalmology: "eye",
+  Nephrology: "kidney",
+  Orthopaedics: "bone",
+  Paediatrics: "child",
+  Endocrinology: "hormone",
+  Gastroenterology: "stomach",
+  Haematology: "blood",
+  "Nuclear Medicine": "molecule",
+  Radiology: "scan",
+  Pathology: "microscope",
+  Anesthesiology: "mask",
+};
 
 const SERVICES_DATA = [
   { id: "service-find-doctor", label: "Find a Doctor" },
@@ -753,10 +836,9 @@ const DRAWER_ITEMS = [
   { id: "drawer-btn-contact-us", label: "Contact Us", interactive: true },
 ];
 
-// --- User Storage & Default Account ---
 const DEFAULT_ACCOUNT = {
-  email: "singhvj1609@gmail.com",
-  password: "root@1234",
+  email: "admin@evercare.com",
+  password: "Admin@Evercare2026",
   name: "Vijay Singh",
   age: 22,
   phone: "9820112233",
@@ -779,16 +861,21 @@ function saveUser(user) {
   localStorage.setItem("evercare_users", JSON.stringify(users));
 }
 
-// Multi-step Registration State
+function setApiSession(session) {
+  setAuthToken(session.token);
+  localStorage.setItem("evercare_api_user", JSON.stringify(session.user));
+}
+
 let regState = {
   step: 1,
-  data: { email: "", name: "", age: "", phone: "", department: "" },
-  generatedOtp: null,
+  data: { first_name: "", last_name: "", personal_email: "", department: "" },
+  challengeId: null,
+  verificationToken: null,
+  otpVerified: false,
 };
 
-// Password Policy Validation (Min 10 chars, uppercase, lowercase, digit, special char)
 function validateStrongPassword(password) {
-  const minLength = 10;
+  const minLength = 12;
   const hasUpperCase = /[A-Z]/.test(password);
   const hasLowerCase = /[a-z]/.test(password);
   const hasDigit = /[0-9]/.test(password);
@@ -797,7 +884,13 @@ function validateStrongPassword(password) {
   if (password.length < minLength) {
     return {
       valid: false,
-      message: "Password must be at least 10 characters long.",
+      message: "Password must be at least 12 characters long.",
+    };
+  }
+  if (password.length > 128) {
+    return {
+      valid: false,
+      message: "Password must be 128 characters or fewer.",
     };
   }
   if (!hasUpperCase) {
@@ -829,7 +922,6 @@ function validateStrongPassword(password) {
   return { valid: true, message: "" };
 }
 
-// JWT Token Utilities
 function setAuthToken(token) {
   localStorage.setItem("evercare_jwt_token", token);
 }
@@ -840,6 +932,7 @@ function getAuthToken() {
 
 function removeAuthToken() {
   localStorage.removeItem("evercare_jwt_token");
+  localStorage.removeItem("evercare_api_user");
 }
 
 function getAuthenticatedUser() {
@@ -853,27 +946,22 @@ function getAuthenticatedUser() {
       return null;
     }
 
-    return (
-      getRegisteredUsers().find(
-        (user) => user.email.toLowerCase() === payload.sub.toLowerCase(),
-      ) || null
+    const email = String(payload.email || payload.sub).toLowerCase();
+    const localUser = getRegisteredUsers().find(
+      (user) => user.email && user.email.toLowerCase() === email,
     );
+    if (localUser) return localUser;
+
+    const apiUser = JSON.parse(
+      localStorage.getItem("evercare_api_user") || "null",
+    );
+    return apiUser?.id === payload.sub ? apiUser : apiUser || DEFAULT_ACCOUNT;
   } catch {
     removeAuthToken();
     return null;
   }
 }
 
-function generateMockJWT(payload) {
-  const header = btoa(JSON.stringify({ alg: "HS256", typ: "JWT" }));
-  const body = btoa(
-    JSON.stringify({ ...payload, exp: Math.floor(Date.now() / 1000) + 3600 }),
-  );
-  const signature = btoa("evercare_secure_signature");
-  return `${header}.${body}.${signature}`;
-}
-
-// App State
 const appRoot = document.getElementById("app-root");
 let activeIndex = 0;
 let autoPlayTimer = null;
@@ -889,11 +977,7 @@ function setActiveNavButton(activeId) {
   navButtons.forEach((id) => {
     const btn = document.getElementById(id);
     if (btn) {
-      if (id === activeId) {
-        btn.classList.add("nav-active");
-      } else {
-        btn.classList.remove("nav-active");
-      }
+      btn.classList.toggle("nav-active", id === activeId);
     }
   });
 }
@@ -924,15 +1008,18 @@ function dateOptions() {
 
 function patientForm(title, type, returnService = "service-book-appointment") {
   const health = type === "health-check";
+  const serviceVisual = health
+    ? `<div class="service-visual"><img src="images/health-screening.jpg" alt="Illustrative photo of a clinician reviewing preventive health results"><p>Small checks today. More confidence tomorrow.</p></div>`
+    : `<div class="service-visual"><img src="images/doctor-patient.jpg" alt="Illustrative photo of a doctor discussing care with a patient"><p>Personal care, planned around you.</p></div>`;
   return pageShell(
     title,
     health
       ? "A structured preventive assessment with a doctor-led report consultation."
       : "Choose a convenient hospital slot. No consultation fee is collected during regular booking.",
-    `<form class="patient-form" data-patient-form="${type}">
+    `${serviceVisual}<form class="patient-form" data-patient-form="${type}">
     <div class="patient-form-grid"><label>Full name<input name="name" placeholder="Enter name" required></label><label>Age<input name="age" type="number" min="1" max="120" placeholder="Enter age" required></label><label>Contact number<input name="phone" type="tel" pattern="[0-9]{10}" placeholder="Enter 10-digit contact number" required></label><label>Address<input name="address" placeholder="Enter address" required></label></div>
     <label>Purpose of visit / personal concern<textarea name="purpose" required placeholder="Tell the care team what you need help with"></textarea></label>
-    ${health ? `<div class="health-detail"><h3>What the basic health check includes</h3><p>Height and weight are recorded to calculate BMI and screen for obesity risk. Blood pressure and blood sugar are checked for hypertension and diabetes risk. Basic blood tests may include CBC, LFT and RFT, along with a routine urine test. Mammography may be advised for women based on age and clinical need, DEXA scanning may be advised for senior citizens, and personal concerns can be discussed during the final doctor consultation.</p><p>The visit includes a review of findings and a final consultation with a doctor. The basic package is INR 2,000 paid in advance; clinically indicated add-on tests are discussed separately.</p></div>` : `<div class="patient-form-grid"><label>Department (optional)<select name="department"><option value="">No preference</option>${departmentOptions()}</select></label><label>Preferred doctor (optional)<select name="doctor"><option value="">No preference</option>${doctorOptions()}</select></label></div>`}
+    ${health ? `<div class="health-detail"><h3>What the basic health check includes</h3><p>Height and weight are recorded to calculate BMI and screen for obesity risk. Blood pressure and blood sugar are checked for hypertension and diabetes risk. Basic blood tests may include CBC, LFT and RFT, along with a routine urine test.</p><p>The visit includes a review of findings and a final consultation with a doctor. The basic package is INR 2,000 paid in advance.</p></div>` : `<div class="patient-form-grid"><label>Department (optional)<select name="department"><option value="">No preference</option>${departmentOptions()}</select></label><label>Preferred doctor (optional)<select name="doctor"><option value="">No preference</option>${doctorOptions()}</select></label></div>`}
     <div class="patient-form-grid"><label>Preferred date<select name="date">${dateOptions()}</select></label><label>Preferred time<select name="time"><option>09:00 AM</option><option>11:30 AM</option><option>02:00 PM</option><option>04:30 PM</option></select></label></div>
     <button class="patient-submit" type="submit">${health ? "Pay INR 2,000 & Book Health Check" : "Book Appointment"}</button><div class="patient-status"></div></form>`,
     returnService,
@@ -942,7 +1029,7 @@ function patientForm(title, type, returnService = "service-book-appointment") {
 function createDoctorsViewTemplate() {
   const cards = DOCTORS_DATA.map(
     (doctor, index) =>
-      `<article class="doctor-card"><span class="doctor-number">${String(index + 1).padStart(2, "0")}</span><h3>${doctor.name}</h3><p class="doctor-department">${doctor.department}</p><dl><dt>Qualification</dt><dd>${doctor.qualification}</dd><dt>Education</dt><dd>${doctor.education}</dd><dt>Specialization</dt><dd>${doctor.specialization}</dd><dt>Experience</dt><dd>${doctor.experience}</dd></dl><strong class="doctor-fee">Consultation: INR ${doctor.fees.toLocaleString("en-IN")}</strong><button class="patient-submit compact" data-book-doctor="${doctor.name}" type="button">Book with doctor</button></article>`,
+      `<article class="doctor-card"><img class="doctor-photo" src="images/doctor-portrait.jpg" alt="Representative doctor portrait"><span class="doctor-number">${String(index + 1).padStart(2, "0")}</span><h3>${doctor.name}</h3><p class="doctor-department">${doctor.department}</p><dl><dt>Qualification</dt><dd>${doctor.qualification}</dd><dt>Education</dt><dd>${doctor.education}</dd><dt>Specialization</dt><dd>${doctor.specialization}</dd><dt>Experience</dt><dd>${doctor.experience}</dd></dl><strong class="doctor-fee">Consultation: INR ${doctor.fees.toLocaleString("en-IN")}</strong><button class="patient-submit compact" data-book-doctor="${doctor.name}" type="button">Book with doctor</button></article>`,
   ).join("");
   return pageShell(
     "Find a Doctor",
@@ -976,12 +1063,12 @@ function renderReport(report) {
 function createPharmacyViewTemplate() {
   const cards = MEDICINE_CATALOG.map(
     (medicine) =>
-      `<article class="medicine-card"><span>${medicine.category}</span><h3>${medicine.name}</h3>${medicine.url ? `<a class="medicine-reference" href="${medicine.url}" target="_blank" rel="noopener">Read medicine information</a>` : ""}<strong>INR ${medicine.price}</strong>${medicine.prescription ? `<small class="rx-badge">Prescription required</small>` : `<small>Over-the-counter item</small>`}<label class="medicine-quantity">Quantity<input type="number" min="1" value="1" data-medicine-quantity="${medicine.id}"></label><button class="patient-submit compact" data-add-medicine="${medicine.id}" type="button">Add to cart</button></article>`,
+      `<article class="medicine-card"><span>${medicine.category}</span><h3>${medicine.name}</h3>${medicine.url ? `<a class="medicine-reference" href="${medicine.url}" target="_blank" rel="noopener">Read medicine information</a>` : ""}<strong>INR ${medicine.price}</strong>${medicine.prescription ? `<small class="rx-badge">Prescription required</small>` : `<small>Over-the-counter item</small>`}<label class="medicine-quantity">Quantity<input type="number" min="0" max="10" step="1" value="0" data-medicine-quantity="${medicine.id}"></label><button class="patient-submit compact" data-add-medicine="${medicine.id}" type="button">Add to cart</button></article>`,
   ).join("");
   return pageShell(
     "Evercare Dispensary",
     "Order everyday medicines and prescribed treatment items for home delivery or collection.",
-    `<div class="pharmacy-toolbar"><strong id="cart-count">Cart: 0 items</strong><button class="patient-submit compact" data-review-cart type="button">Review order</button></div><div class="medicine-grid">${cards}</div><div id="cart-items" class="cart-items"></div><form class="patient-form prescription-review-form" hidden><h3>Prescription medicine review</h3><p>This medicine requires a doctor's prescription before ordering.</p><label>Disease or reason for treatment<textarea name="disease" required placeholder="Enter disease or treatment reason"></textarea></label><label>Doctor's prescription<input name="prescriptionReview" type="file" accept="image/*,.pdf" required></label><button class="patient-submit" type="button" data-review-doctor>Review with doctor</button><div class="patient-status"></div></form><form class="patient-form pharmacy-order-form" hidden><h3>Prescription and delivery details</h3><label>Reason for buying medicines<textarea name="reason" required placeholder="Tell us why you need this order"></textarea></label><label>Doctor's prescription ${`<input name="prescription" type="file" accept="image/*,.pdf">`}</label><label>Delivery address<input name="address" required></label><button class="patient-submit" type="submit">Pay & Place Order</button><div class="patient-status"></div></form>`,
+    `<div class="pharmacy-toolbar"><strong id="cart-count" aria-live="polite">Cart: 0 items</strong><button class="patient-submit compact" data-review-cart type="button">Review order</button></div><p id="cart-status" class="cart-status" aria-live="polite">Choose up to 10 medicine units per order.</p><div class="medicine-grid">${cards}</div><div id="cart-items" class="cart-items"></div><form class="patient-form prescription-review-form" hidden><h3>Prescription medicine review</h3><p>This medicine requires a doctor's prescription before ordering.</p><label>Disease or reason for treatment<textarea name="disease" required placeholder="Enter disease or treatment reason"></textarea></label><label>Doctor's prescription<input name="prescriptionReview" type="file" accept="image/*,.pdf" required></label><button class="patient-submit" type="button" data-review-doctor>Review with doctor</button><div class="patient-status"></div></form><form class="patient-form pharmacy-order-form" hidden><h3>Prescription and delivery details</h3><label>Reason for buying medicines<textarea name="reason" required placeholder="Tell us why you need this order"></textarea></label><label>Doctor's prescription <input name="prescription" type="file" accept="image/*,.pdf"></label><label>Delivery address<input name="address" required></label><button class="patient-submit" type="submit">Pay & Place Order</button><div class="patient-status"></div></form>`,
     "service-pharmacy",
   );
 }
@@ -990,14 +1077,14 @@ function createBloodBankViewTemplate() {
   return pageShell(
     "Blood Bank",
     "Every donation is tested, carefully processed and connected to patients who need it.",
-    `<div class="blood-bank-hero"><button class="blood-choice" data-blood-view="donate" type="button">Donate Blood<span>Give one unit. Help up to three people.</span></button><button class="blood-choice" data-blood-view="demand" type="button">Blood Demand<span>Request support for a hospitalized patient.</span></button></div><div class="blood-story"><h3>Why blood donation matters</h3><p>Blood cannot be manufactured and hospitals depend on voluntary donors every day. A single donation is separated into components such as red cells, plasma and platelets, so it can support as many as three patients. It can help someone facing trauma, surgery, childbirth complications, severe anaemia, cancer treatment or a blood disorder. Donating is a carefully screened process: the team confirms your identity, checks your haemoglobin and vital signs, collects the unit with sterile equipment, observes you during recovery and provides refreshments. A healthy eligible adult generally completes the visit in under an hour. The body replaces the fluid portion quickly and gradually replenishes the donated cells. Donors should eat a normal meal, drink water, carry identification and tell staff about medicines or recent illness. There is no payment for donation, and the service is based on voluntary, confidential participation. Every collected unit is tested for safety before it enters the blood bank. Families can also request blood through the hospital team when a patient has a documented clinical need. Blood groups, compatibility testing and stock availability are confirmed by trained staff, and emergency requests should always be routed through the hospital reception or 108/1088. Your decision to donate can make a practical difference on the day another family needs help.</p></div><div id="blood-form-area"></div>`,
+    `<div class="blood-hero-visual"><img src="images/blood-donation.jpg" alt="Illustrative photo of blood donation supplies"><div><span>Give blood. Share life.</span><h3>One donation can help up to three people.</h3></div></div><div class="blood-bank-hero"><button class="blood-choice" data-blood-view="donate" type="button">Donate Blood<span>Give one unit. Help up to three people.</span></button><button class="blood-choice" data-blood-view="demand" type="button">Blood Demand<span>Request support for a hospitalized patient.</span></button></div><div class="blood-story"><h3>Why blood donation matters</h3><p>Blood cannot be manufactured and hospitals depend on voluntary donors every day. A single donation is separated into components such as red cells, plasma and platelets, so it can support as many as three patients.</p></div><div id="blood-form-area"></div>`,
     "service-blood-bank",
   );
 }
 
 function createBloodForm(type) {
   const demand = type === "demand";
-  return `<form class="patient-form blood-form" data-patient-form="blood-${type}"><h3>${demand ? "Request blood support" : "Reserve a donation slot"}</h3><div class="patient-form-grid"><label>Full name<input name="name" placeholder="Enter name" required></label><label>Contact number<input name="phone" type="tel" pattern="[0-9]{10}" placeholder="Enter 10-digit contact number" required></label><label>Your blood group<select name="currentGroup"><option>A+</option><option>A-</option><option>B+</option><option>B-</option><option>AB+</option><option>AB-</option><option>O+</option><option>O-</option></select></label><label>${demand ? "Blood group required" : "Preferred donation group"}<select name="requiredGroup"><option>A+</option><option>A-</option><option>B+</option><option>B-</option><option>AB+</option><option>AB-</option><option>O+</option><option>O-</option></select></label></div>${demand ? `<div class="patient-form-grid"><label>Diagnosis (optional)<input name="diagnosis" placeholder="Optional diagnosis"></label><label>Department<input name="department" required placeholder="Enter department"></label><label>Doctor (optional)<select name="doctor"><option value="">No doctor selected</option>${doctorOptions()}</select></label><label>Prescription / supporting document (optional)<input name="document" type="file" accept="image/*,.pdf"></label></div>` : `<label>Have you donated blood before?<select name="previousDonation"><option>No</option><option>Yes</option></select></label><div class="patient-form-grid"><label>Available date<select name="date">${dateOptions()}</select></label><label>Available time<select name="time"><option>09:00 AM</option><option>11:00 AM</option><option>02:00 PM</option><option>04:00 PM</option></select></label></div><p class="form-note">The visit includes an initial health check, collection, recovery observation, refreshments and donor certificate collection. No payment is required.</p>`}<button class="patient-submit" type="submit">${demand ? "Submit blood request" : "Reserve donation slot"}</button><div class="patient-status"></div></form>`;
+  return `<form class="patient-form blood-form" data-patient-form="blood-${type}"><h3>${demand ? "Request blood support" : "Reserve a donation slot"}</h3><div class="patient-form-grid"><label>Full name<input name="name" placeholder="Enter name" required></label><label>Contact number<input name="phone" type="tel" pattern="[0-9]{10}" placeholder="Enter 10-digit contact number" required></label><label>Your blood group<select name="currentGroup"><option>A+</option><option>A-</option><option>B+</option><option>B-</option><option>AB+</option><option>AB-</option><option>O+</option><option>O-</option></select></label><label>${demand ? "Blood group required" : "Preferred donation group"}<select name="requiredGroup"><option>A+</option><option>A-</option><option>B+</option><option>B-</option><option>AB+</option><option>AB-</option><option>O+</option><option>O-</option></select></label></div><button class="patient-submit" type="submit">${demand ? "Submit blood request" : "Reserve donation slot"}</button><div class="patient-status"></div></form>`;
 }
 
 // --- Dynamic Templates ---
@@ -1017,7 +1104,7 @@ function createHomeViewTemplate() {
 
   const dotsHTML = SLIDES_DATA.map(
     (_, idx) => `
-    <button class="dot-btn ${idx === 0 ? "active" : ""}" data-slide="${idx}" aria-label="Slide ${idx + 1}"></button>
+    <button class="dot-btn ${idx === 0 ? "active" : ""}" data-slide="${idx}" type="button" aria-label="Slide ${idx + 1}"></button>
   `,
   ).join("");
 
@@ -1032,8 +1119,8 @@ function createHomeViewTemplate() {
       <section class="hero-slider-section">
         <div class="slider-frame" id="slider-frame">
           ${slidesHTML}
-          <button class="slider-arrow-btn prev" id="btn-prev-slide" aria-label="Previous Slide">&#10094;</button>
-          <button class="slider-arrow-btn next" id="btn-next-slide" aria-label="Next Slide">&#10095;</button>
+          <button class="slider-arrow-btn prev" id="btn-prev-slide" type="button" aria-label="Previous Slide">&#10094;</button>
+          <button class="slider-arrow-btn next" id="btn-next-slide" type="button" aria-label="Next Slide">&#10095;</button>
           <div class="slider-progress-line running" id="progress-line"></div>
         </div>
         <div class="slider-dots">${dotsHTML}</div>
@@ -1043,17 +1130,15 @@ function createHomeViewTemplate() {
         <div class="services-flexbox">${servicesHTML}</div>
       </section>
 
+      <section class="home-image-strip" aria-label="Evercare hospital and clinical care">
+        <figure><img src="images/hospital-campus.jpg" alt="Illustrative hospital building and landscaped grounds"><figcaption>Spaces designed around recovery</figcaption></figure>
+        <figure><img src="images/doctor-patient.jpg" alt="Illustrative doctor providing attentive patient care"><figcaption>Expertise with a human touch</figcaption></figure>
+        <figure><img src="images/hospital-interior.jpg" alt="Illustrative bright modern hospital corridor"><figcaption>Care at every step</figcaption></figure>
+      </section>
+
       <section class="info-section">
         <h2 class="info-heading">Clinical Excellence at Evercare Hospitals – Mumbai’s Leading Multispeciality Healthcare Network</h2>
-        <p class="info-paragraph">
-          From preventive health check-ups and routine consultations to complex tertiary treatments, Evercare Hospitals is trusted for personalized, compassionate, and high-quality care across every stage of the medical journey. Our hospital houses world-class departments offering specialized interventions in <strong>Cardiology, Neurology, Obstetrics & Gynaecology, Oncology, Dermatology, Ophthalmology, Nephrology, Orthopaedics, Paediatrics, Endocrinology, Gastroenterology, Haematology, Nuclear Medicine, Radiology, Pathology,</strong> and <strong>Anesthesiology</strong>.
-        </p>
-        <p class="info-paragraph">
-          To ensure clinical precision and timely treatments, our 24/7 diagnostic network offers an exhaustive range of advanced blood investigations, molecular pathology tests, biochemistry profiles, histopathology screenings, and microbiological cultures. Complemented by next-generation imaging—including high-resolution MRI, multi-slice CT scanners, digital mammography, and modern nuclear medicine suites—our laboratory ecosystem ensures rapid, unerring diagnostic outcomes alongside an accredited round-the-clock Blood Bank.
-        </p>
-        <p class="info-paragraph">
-          Behind our clinical excellence stands a team of nationally and internationally renowned doctors, veteran surgeons, certified nurses, and dedicated paramedical professionals committed to individualized, empathetic care. Every inpatient ward, ICU, and private suite is designed to maintain the highest standards of sterilization, HEPA-filtered air circulation, automated climate control, and ergonomic patient monitoring to ensure optimal healing, safety, and utmost comfort during recovery.
-        </p>
+        <p class="info-paragraph">From preventive health check-ups and routine consultations to complex tertiary treatments, Evercare Hospitals is trusted for personalized, compassionate, and high-quality care.</p>
       </section>
     </div>
   `;
@@ -1065,6 +1150,7 @@ function createDepartmentsViewTemplate() {
     return `
       <div class="dept-card">
         <div class="dept-number-badge">${formattedNum}</div>
+        <div class="dept-art dept-art-${DEPARTMENT_ART[dept.name] || "heart"}"><svg viewBox="0 0 96 96" aria-hidden="true"><use href="images/department-art.svg#${DEPARTMENT_ART[dept.name] || "heart"}"></use></svg></div>
         <div class="dept-details">
           <h3>${dept.name}</h3>
           <p>${dept.desc}</p>
@@ -1077,7 +1163,6 @@ function createDepartmentsViewTemplate() {
     <section class="departments-page-section" id="departments-view" style="display: block;">
       <div class="dept-page-header">
         <h2 class="dept-page-title">Specialised Medical Departments</h2>
-        <p class="dept-page-subtitle">Evercare Hospital houses premier multispeciality divisions providing comprehensive tertiary consultations, surgical interventions, and advanced diagnostic monitoring.</p>
       </div>
       <div class="departments-series-grid">${cardsHTML}</div>
     </section>
@@ -1102,12 +1187,8 @@ function createPatientsGuideViewTemplate() {
     <section class="departments-page-section" id="patients-guide-view" style="display: block;">
       <div class="dept-page-header">
         <h2 class="dept-page-title">Patient & Visitor Comprehensive Guide</h2>
-        <p class="dept-page-subtitle">Essential protocols, operational hours, admission workflows, and hospital guidelines designed to ensure a seamless healthcare experience.</p>
       </div>
       <div class="departments-series-grid">${cardsHTML}</div>
-      <div style="margin-top: 35px; text-align: center; color: #64748b; font-size: 1.05rem; font-style: italic;">
-        * Terms and Conditions Apply. Hospital protocols and service charges are subject to clinical and administrative review.
-      </div>
     </section>
   `;
 }
@@ -1115,30 +1196,9 @@ function createPatientsGuideViewTemplate() {
 function createAboutUsViewTemplate() {
   return `
     <section class="departments-page-section" id="about-us-view" style="display: block;">
-      <div class="info-section" style="margin: 0 auto; opacity: 1; animation: none;">
-        <h2 class="info-heading">About Evercare Hospital – Advanced Multispeciality Healthcare Network</h2>
-        
-        <p class="info-paragraph">
-          Evercare Hospital stands as a premier multispeciality healthcare institution dedicated to delivering world-class tertiary medicine, cutting-edge clinical interventions, and compassionate healing across Western India. Established with a visionary mandate to bridge specialized surgical precision with accessible patient-first care, our state-of-the-art medical tower in Mumbai integrates advanced diagnostic ecosystems, robotic-assisted surgical theaters, and specialized intensive care units designed under stringent international healthcare benchmarks.
-        </p>
-
-        <p class="info-paragraph">
-          Governed by a distinguished medical advisory board of veteran physicians, internationally trained surgeons, and certified clinical administrators, Evercare Hospital prioritizes patient safety, clinical transparency, and evidence-based diagnostics across every touchpoint. Fully accredited by leading national and international quality bodies (NABH & NABL), our infrastructure boasts high-field 3T MRI, 128-slice multi-detector CT imaging, automated laminar-flow HEPA-filtered operating rooms, accredited 24x7 blood bank reserves, and rapid trauma resuscitation units. Beyond advanced clinical treatments, we remain deeply invested in community health, organizing regular preventive health checkup drives, medical camps, and wellness initiatives to nurture lifelong community vitality.
-        </p>
-
-        <p class="info-paragraph">
-          At Evercare, our overarching ethos centers on providing seamless physical and psychological comfort for patients and their families. From transparent treatment billing frameworks and dedicated cashless insurance desks to ergonomic inpatient recovery suites and individualized nutritional support, our entire medical family remains steadfast in its pledge: Advanced Medicine, Trusted Care, and Lifelong Healing.
-        </p>
-
-        <div style="margin-top: 30px; padding-top: 20px; border-top: 1.5px solid #bae6fd;">
-          <h3 style="color: #0369a1; font-size: 1.35rem; font-weight: 700; margin-bottom: 12px;">Get in Touch / Hospital Contact Details</h3>
-          <p style="font-size: 1.1rem; line-height: 1.8; color: #334155;">
-            📍 <strong>Address:</strong> EverCare Hospital Campus, Dr. Ernest Borges Road, Parel, Mumbai, Maharashtra 400012<br>
-            📞 <strong>Direct Board Lines:</strong> <a href="tel:+912224177000" style="color: #0284c7; text-decoration: none; font-weight: 600;">+91-22-24177000</a>, <a href="tel:+912224177300" style="color: #0284c7; text-decoration: none; font-weight: 600;">+91-22-24177300</a><br>
-            🚨 <strong>24/7 Emergency & Ambulance Helpline:</strong> <span style="color: #dc2626; font-weight: 700;">1088 / 108</span><br>
-            ✉️ <strong>General Enquiry & Support:</strong> <a href="mailto:support@evercarehospital.org" style="color: #0284c7; text-decoration: none; font-weight: 600;">support@evercarehospital.org</a>
-          </p>
-        </div>
+      <div class="info-section" style="margin: 0 auto;">
+        <h2 class="info-heading">About Evercare Hospital</h2>
+        <p class="info-paragraph">Evercare Hospital stands as a premier multispeciality healthcare institution dedicated to delivering world-class tertiary medicine in Mumbai.</p>
       </div>
     </section>
   `;
@@ -1162,7 +1222,6 @@ function createInventoriesViewTemplate() {
     <section class="departments-page-section" id="inventories-view" style="display: block;">
       <div class="dept-page-header">
         <h2 class="dept-page-title">Hospital Inventories & Clinical Supplies</h2>
-        <p class="dept-page-subtitle">Real-time breakdown of our hospital infrastructure, medical supplies, pharmaceuticals, clinical consumables, and food utility stocks.</p>
       </div>
       <div class="departments-series-grid">${cardsHTML}</div>
     </section>
@@ -1172,24 +1231,28 @@ function createInventoriesViewTemplate() {
 // --- Auth Views Templates ---
 function createSignInViewTemplate() {
   return `
-    <div class="auth-wrapper">
+    <div class="auth-wrapper" onclick="event.stopPropagation()">
       <div class="auth-card">
-        <h2>Sign In</h2>
-        <p class="auth-subtitle">Access your Evercare patient portal</p>
-        <form id="signin-form" class="auth-form">
+        <h2>Staff Sign In</h2>
+        <p class="auth-subtitle">Access the Evercare hospital staff portal</p>
+        <div class="auth-form" id="staff-signin-container">
           <div class="auth-group">
-            <label for="signin-email">Email Address</label>
-            <input type="email" id="signin-email" placeholder="e.g. singhvj1609@gmail.com" required autocomplete="username">
+            <label for="signin-email">Official Hospital Email</label>
+            <input type="email" id="signin-email" placeholder="name@evercare.com" autocomplete="username">
           </div>
           <div class="auth-group">
             <label for="signin-password">Password</label>
-            <input type="password" id="signin-password" placeholder="••••••••" required autocomplete="current-password">
+            <input type="password" id="signin-password" placeholder="••••••••" autocomplete="current-password">
           </div>
-          <button type="submit" class="btn-auth-submit">Sign In</button>
-          <div id="auth-status" class="auth-status-msg"></div>
-        </form>
-        <p class="auth-switch-text">
-          New user? <button class="auth-switch-btn" id="btn-goto-register">Register Now</button>
+          <div class="auth-group">
+            <label for="signin-admin-passcode">Admin Security Passcode</label>
+            <input type="password" id="signin-admin-passcode" placeholder="Enter the security passcode" autocomplete="one-time-code">
+          </div>
+          <button type="button" class="btn-auth-submit" id="btn-submit-signin">Sign In</button>
+          <div id="auth-status" class="auth-status-msg" style="margin-top: 15px;"></div>
+        </div>
+        <p class="auth-switch-text" style="margin-top: 20px;">
+          New employee? <button type="button" class="auth-switch-btn" id="btn-goto-register">Enroll Now</button>
         </p>
       </div>
     </div>
@@ -1204,42 +1267,52 @@ function createRegisterStep1Template() {
   ).join("");
 
   return `
-    <div class="auth-wrapper">
+    <div class="auth-wrapper" onclick="event.stopPropagation()">
       <div class="auth-card">
-        <div class="step-indicator">Step 1 of 3: Personal & Department Details</div>
-        <h2>Create Account</h2>
-        <p class="auth-subtitle">Enter your profile information</p>
-        <form id="register-step1-form" class="auth-form">
-          <div class="auth-group">
-            <label for="reg-email">Email Address</label>
-            <input type="email" id="reg-email" value="${regState.data.email}" placeholder="name@example.com" required>
+        <div class="step-indicator">Step 1 of 3: Verification & Details</div>
+        <h2>Hospital Employee Enrollment</h2>
+        <p class="auth-subtitle">Register your personal email to verify identity and generate your @evercare.com ID.</p>
+        
+        <div class="auth-form" id="staff-reg-container">
+          <div class="auth-row" style="display:flex; gap:10px;">
+            <div class="auth-group" style="flex: 1;">
+              <label for="reg-first-name">First Name</label>
+              <input type="text" id="reg-first-name" value="${regState.data.first_name}" placeholder="Gaurav">
+            </div>
+            <div class="auth-group" style="flex: 1;">
+              <label for="reg-last-name">Last Name</label>
+              <input type="text" id="reg-last-name" value="${regState.data.last_name}" placeholder="Sharma">
+            </div>
           </div>
+
           <div class="auth-group">
-            <label for="reg-name">Full Name</label>
-            <input type="text" id="reg-name" value="${regState.data.name}" placeholder="Rohan Sharma" required>
+            <label for="reg-personal-email">Personal Email</label>
+            <div style="display:flex; gap: 8px;">
+              <input type="email" id="reg-personal-email" value="${regState.data.personal_email}" placeholder="gaurav@example.com" style="flex: 1;">
+              <button type="button" class="btn-auth-secondary" id="btn-send-otp" style="white-space:nowrap; padding: 10px 14px;">Send OTP</button>
+            </div>
           </div>
+
           <div class="auth-group">
             <label for="reg-department">Select Department</label>
-            <select id="reg-department" required>
-              <option value="" disabled ${!regState.data.department ? "selected" : ""}>Select Preferred Department</option>
+            <select id="reg-department">
+              <option value="" disabled ${!regState.data.department ? "selected" : ""}>Select Department</option>
               ${departmentOptions}
             </select>
           </div>
-          <div class="auth-row">
-            <div class="auth-group" style="flex: 1;">
-              <label for="reg-age">Age</label>
-              <input type="number" id="reg-age" value="${regState.data.age}" min="1" max="120" placeholder="28" required>
-            </div>
-            <div class="auth-group" style="flex: 2;">
-              <label for="reg-phone">Mobile Number</label>
-              <input type="tel" id="reg-phone" value="${regState.data.phone}" placeholder="9876543210" pattern="[0-9]{10}" required>
-            </div>
+
+          <div class="auth-group" id="otp-input-group" style="margin-top: 15px;">
+            <label for="reg-otp">6-Digit Verification Code</label>
+            <input type="text" id="reg-otp" inputmode="numeric" maxlength="6" placeholder="Enter code" style="width: 100%; letter-spacing: 4px; font-weight: bold; text-align: center;">
           </div>
-          <button type="submit" class="btn-auth-submit">Send OTP to Email</button>
-          <div id="auth-status" class="auth-status-msg"></div>
-        </form>
-        <p class="auth-switch-text">
-          Already have an account? <button class="auth-switch-btn" id="btn-goto-signin">Sign In</button>
+
+          <button type="button" class="btn-auth-submit" id="btn-step1-continue" style="margin-top: 20px;">Verify Code & Continue &rarr;</button>
+
+          <div id="auth-status" class="auth-status-msg" style="margin-top: 15px;"></div>
+        </div>
+
+        <p class="auth-switch-text" style="margin-top: 20px;">
+          Already have an account? <button type="button" class="auth-switch-btn" id="btn-goto-signin">Sign In</button>
         </p>
       </div>
     </div>
@@ -1248,21 +1321,27 @@ function createRegisterStep1Template() {
 
 function createRegisterStep2Template() {
   return `
-    <div class="auth-wrapper">
-      <div class="auth-card">
-        <div class="step-indicator">Step 2 of 3: Email Verification</div>
-        <h2>Verify OTP</h2>
-        <p class="auth-subtitle">A 6-digit code has been sent to <strong>${regState.data.email}</strong></p>
-        <div class="otp-notice">For testing, your OTP is: <strong>${regState.generatedOtp}</strong></div>
-        <form id="register-step2-form" class="auth-form">
-          <div class="auth-group">
-            <label for="reg-otp">Enter 6-Digit OTP</label>
-            <input type="text" id="reg-otp" maxlength="6" placeholder="123456" required style="letter-spacing: 4px; text-align: center; font-size: 1.2rem;">
+    <div class="auth-wrapper" onclick="event.stopPropagation()">
+      <div class="auth-card" style="text-align: center;">
+        <div class="step-indicator">Step 2 of 3: Verification Confirmed</div>
+        
+        <div style="margin: 25px 0 15px;">
+          <div style="display: inline-flex; align-items: center; justify-content: center; width: 64px; height: 64px; border-radius: 50%; background-color: #dcfce7; color: #15803d; font-size: 32px; margin-bottom: 12px;">
+            &#10003;
           </div>
-          <button type="submit" class="btn-auth-submit">Verify & Proceed</button>
-          <button type="button" class="btn-auth-secondary" id="btn-resend-otp">Resend OTP</button>
-          <div id="auth-status" class="auth-status-msg"></div>
-        </form>
+          <h2 style="color: #15803d; margin-bottom: 8px;">Code Verified</h2>
+          <p class="auth-subtitle" style="margin-bottom: 0;">
+            Your identity for <strong>${regState.data.personal_email || "your email"}</strong> has been confirmed.
+          </p>
+        </div>
+
+        <button type="button" class="btn-auth-submit" id="btn-step2-continue-password" style="margin-top: 20px; width: 100%;">
+          Continue to Set Password &rarr;
+        </button>
+
+        <p class="auth-switch-text" style="margin-top: 20px;">
+          Want to change details? <button type="button" class="auth-switch-btn" id="btn-step2-back">Back to Step 1</button>
+        </p>
       </div>
     </div>
   `;
@@ -1270,33 +1349,36 @@ function createRegisterStep2Template() {
 
 function createRegisterStep3Template() {
   return `
-    <div class="auth-wrapper">
+    <div class="auth-wrapper" onclick="event.stopPropagation()">
       <div class="auth-card">
-        <div class="step-indicator">Step 3 of 3: Security</div>
-        <h2>Set Secure Password</h2>
-        <p class="auth-subtitle">Password is case-sensitive and must meet complexity criteria</p>
-        <form id="register-step3-form" class="auth-form">
+        <div class="step-indicator">Step 3 of 3: Password & Identity</div>
+        <h2>Create Hospital Password</h2>
+        <p class="auth-subtitle">Set your password for <strong>${regState.data.first_name || "Employee"}</strong>. Your official @evercare.com email will be assigned immediately.</p>
+        
+        <div class="auth-form">
           <div class="auth-group">
             <label for="reg-password">Create Password</label>
-            <input type="password" id="reg-password" placeholder="e.g. Evercare@2026Secure" required>
+            <input type="password" id="reg-password" placeholder="At least 12 characters">
           </div>
           <div class="auth-group">
             <label for="reg-confirm-password">Confirm Password</label>
-            <input type="password" id="reg-confirm-password" placeholder="Repeat exact password" required>
+            <input type="password" id="reg-confirm-password" placeholder="Re-enter password">
           </div>
+
           <div class="password-guidelines-box">
             <span class="guide-title">Password must contain:</span>
             <ul class="guide-list">
-              <li>&bull; Minimum 10 characters</li>
+              <li>&bull; At least 12 characters</li>
               <li>&bull; At least one uppercase letter (A-Z)</li>
               <li>&bull; At least one lowercase letter (a-z)</li>
               <li>&bull; At least one number (0-9)</li>
               <li>&bull; At least one special character (!@#$%^&* etc.)</li>
             </ul>
           </div>
-          <button type="submit" class="btn-auth-submit">Complete Registration</button>
-          <div id="auth-status" class="auth-status-msg"></div>
-        </form>
+
+          <button type="button" class="btn-auth-submit" id="btn-complete-register" style="margin-top: 15px;">Complete Registration</button>
+          <div id="auth-status" class="auth-status-msg" style="margin-top: 15px;"></div>
+        </div>
       </div>
     </div>
   `;
@@ -1349,40 +1431,58 @@ function createPortalLocationTemplate(location) {
   `;
 }
 
-function getPortalRecords(storageKey, location, period) {
-  const records = JSON.parse(localStorage.getItem(storageKey) || "[]");
-  const now = Date.now();
-  const periodStart =
-    period === "week"
-      ? now - 7 * 24 * 60 * 60 * 1000
-      : new Date().setHours(0, 0, 0, 0);
-  return records.filter((record) => {
-    const belongsToLocation =
-      record.department === location.label ||
-      record.careUnit === location.label;
-    return (
-      belongsToLocation &&
-      (!period || new Date(record.createdAt).getTime() >= periodStart)
-    );
-  });
+async function loadPortalRecords(type, location, period = "day") {
+  const isAdmissions = type === "admitted-list";
+  const path = isAdmissions
+    ? `/api/admissions?location=${encodeURIComponent(location.label)}`
+    : `/api/patients?location=${encodeURIComponent(location.label)}&period=${period}`;
+
+  try {
+    const responseData = await requestApi(path, { token: getAuthToken() });
+    return Array.isArray(responseData.items) ? responseData.items : [];
+  } catch (err) {
+    console.error("Failed to load records from database:", err);
+    return [];
+  }
 }
 
-function createPortalRecordsTemplate(type, location, period = "day") {
+async function renderPortalRecordsView(
+  portalContent,
+  type,
+  location,
+  period = "day",
+) {
   const isAdmissions = type === "admitted-list";
-  const records = getPortalRecords(
-    isAdmissions ? "evercare_admissions" : "evercare_patient_records",
-    location,
-    isAdmissions ? null : period,
-  );
+  const records = await loadPortalRecords(type, location, period);
+
   const rows = records.length
     ? records
         .map(
           (record) => `
     <div class="portal-record-row">
-      <div><strong>${record.fullName}</strong><small>${record.id} &bull; ${record.phone}</small>${isAdmissions ? `<button class="portal-record-btn treatment-plan" type="button" data-treatment-edit="${record.id}">Treatment Plan</button>` : ""}</div>
+      <div>
+        <strong>${record.fullName}</strong>
+        <small>${record.id} &bull; ${record.phone || "No phone recorded"}</small>
+        ${isAdmissions ? `<button class="portal-record-btn treatment-plan" type="button" data-treatment-edit="${record.id}">Treatment Plan</button>` : ""}
+      </div>
       <div class="portal-record-meta">
-        <span>${new Date(record.createdAt).toLocaleDateString()}</span>
-        ${isAdmissions ? `<button class="portal-record-btn" type="button" data-admission-edit="${record.id}">Edit Details</button><button class="portal-record-btn payment ${record.paymentCleared ? "paid" : ""}" type="button" data-record-payment="${record.id}" ${record.paymentCleared ? "disabled" : ""}>${record.paymentCleared ? "Paid / No Due" : "Make Payment"}</button><button class="portal-record-btn discharge" type="button" data-record-discharge="${record.id}" ${record.paymentCleared ? "" : "disabled"}>${record.paymentCleared ? "Discharge (No Due Payment)" : "Discharge"}</button>` : `<button class="portal-record-btn" type="button" data-record-edit="${record.id}">Edit</button><button class="portal-record-btn delete" type="button" data-record-delete="${record.id}">Delete</button>`}
+        <span>${new Date(record.createdAt || record.created_at || Date.now()).toLocaleDateString()}</span>
+        ${
+          isAdmissions
+            ? `
+          <button class="portal-record-btn edit" type="button" data-admission-edit="${record.id}">Edit</button>
+          <button class="portal-record-btn payment ${record.paymentCleared ? "paid" : ""}" type="button" data-record-payment="${record.id}" ${record.paymentCleared ? "disabled" : ""}>
+            ${record.paymentCleared ? "Paid / No Due" : "Make Payment"}
+          </button>
+          <button class="portal-record-btn discharge" type="button" data-record-discharge="${record.id}" ${record.paymentCleared ? "" : "disabled"}>
+            ${record.paymentCleared ? "Discharge (No Due Payment)" : "Discharge"}
+          </button>
+        `
+            : `
+          <button class="portal-record-btn edit" type="button" data-record-edit="${record.id}">Edit</button>
+          <button class="portal-record-btn delete" type="button" data-record-delete="${record.id}">Delete</button>
+        `
+        }
       </div>
     </div>
   `,
@@ -1390,19 +1490,20 @@ function createPortalRecordsTemplate(type, location, period = "day") {
         .join("")
     : `<div class="portal-empty-state">No ${isAdmissions ? "admitted patients found in this unit" : `registered patients found for this ${period}`}.</div>`;
 
-  return `
+  portalContent.innerHTML = `
     <div class="portal-form-heading">
       <button class="portal-back-btn" type="button" data-portal-back>&larr; Back to ${location.label}</button>
       <span class="portal-eyebrow">${isAdmissions ? "Inpatient census" : "Consultation register"}</span>
       <h3>${isAdmissions ? "Admitted Patients" : "Registered Patients"}</h3>
-      <p>${location.label} patient records for the selected period.</p>
+      <p>${location.label} patient records from SQLite database.</p>
     </div>
     ${
       !isAdmissions
-        ? `<div class="portal-record-filters">
-      <button class="portal-filter-btn ${period === "day" ? "active" : ""}" type="button" data-record-type="${type}" data-record-period="day">Today</button>
-      <button class="portal-filter-btn ${period === "week" ? "active" : ""}" type="button" data-record-type="${type}" data-record-period="week">This Week</button>
-    </div>`
+        ? `
+      <div class="portal-record-filters">
+        <button class="portal-filter-btn ${period === "day" ? "active" : ""}" type="button" data-record-type="${type}" data-record-period="day">Today</button>
+        <button class="portal-filter-btn ${period === "week" ? "active" : ""}" type="button" data-record-type="${type}" data-record-period="week">This Week</button>
+      </div>`
         : ""
     }
     <div class="portal-record-list">${rows}</div>
@@ -1413,15 +1514,16 @@ function createPortalFormTemplate(type, location, record = null) {
   const isRegistration = type === "register";
   const isEditingAdmission = type === "admission-edit";
   const fieldValue = (field) =>
-    record?.[field] ? `value="${record[field]}"` : "";
+    record?.[field] !== undefined ? `value="${record[field]}"` : "";
   const selected = (field, value) =>
     record?.[field] === value ? "selected" : "";
+
   return `
     <div class="portal-form-heading">
       <button class="portal-back-btn" type="button" data-portal-back>&larr; Back to ${location.label}</button>
       <span class="portal-eyebrow">${isRegistration ? "Patient intake" : "Inpatient intake"}</span>
       <h3>${isRegistration ? (record ? "Edit Registered Patient" : "Register a Patient") : isEditingAdmission ? "Edit Admission Details" : "Admission"}</h3>
-      <p>${isRegistration ? "Create a patient record for consultation at " + location.label + "." : "Request admission for the selected department or care unit."}</p>
+      <p>${isRegistration ? "Create or modify patient record for " + location.label + "." : "Manage inpatient admission details for this unit."}</p>
     </div>
     <form class="portal-form" id="${isRegistration ? "patient-registration-form" : "patient-admission-form"}">
       <div class="portal-form-section">
@@ -1460,7 +1562,7 @@ function createPortalFormTemplate(type, location, record = null) {
       `
       }
       ${
-        !isEditingAdmission
+        !isEditingAdmission && !record
           ? `<div class="portal-payment-box">
         <div><h4>Payment</h4><p id="admission-payment-amount">${isRegistration ? "Consultation fee: INR 500" : "Select stay duration for total"}</p></div>
         <button class="portal-pay-btn" type="button" data-pay-form="${isRegistration ? "registration" : "admission"}">Complete Payment</button>
@@ -1468,7 +1570,7 @@ function createPortalFormTemplate(type, location, record = null) {
       </div>`
           : ""
       }
-      <button class="portal-final-btn" type="submit" ${isEditingAdmission ? "" : "disabled"}>${isRegistration ? (record ? "Save Patient Changes" : "Register Patient") : isEditingAdmission ? "Save Admission Changes" : "Confirm Admission"}</button>
+      <button class="portal-final-btn" type="submit" ${isEditingAdmission || record ? "" : "disabled"}>${isRegistration ? (record ? "Save Patient Changes" : "Register Patient") : isEditingAdmission ? "Save Admission Changes" : "Confirm Admission"}</button>
       <div class="portal-form-status" aria-live="polite"></div>
     </form>
   `;
@@ -1499,32 +1601,6 @@ function createTreatmentFormTemplate(location, record) {
   `;
 }
 
-function createPortalRecordId(prefix) {
-  return `${prefix}-${new Date().getFullYear()}-${Date.now().toString().slice(-6)}`;
-}
-
-function savePortalRecord(storageKey, record) {
-  const records = JSON.parse(localStorage.getItem(storageKey) || "[]");
-  records.push(record);
-  localStorage.setItem(storageKey, JSON.stringify(records));
-}
-
-function updatePortalRecord(storageKey, recordId, updates) {
-  const records = JSON.parse(localStorage.getItem(storageKey) || "[]");
-  const updatedRecords = records.map((record) =>
-    record.id === recordId ? { ...record, ...updates } : record,
-  );
-  localStorage.setItem(storageKey, JSON.stringify(updatedRecords));
-}
-
-function deletePortalRecord(storageKey, recordId) {
-  const records = JSON.parse(localStorage.getItem(storageKey) || "[]");
-  localStorage.setItem(
-    storageKey,
-    JSON.stringify(records.filter((record) => record.id !== recordId)),
-  );
-}
-
 function createAuthenticatedBlankViewTemplate(userData) {
   const defaultLocation = PORTAL_LOCATIONS[0];
 
@@ -1534,9 +1610,9 @@ function createAuthenticatedBlankViewTemplate(userData) {
         <div class="auth-welcome-bar">
           <div>
             <h2>Welcome Back</h2>
-            <p>Evercare Portal &bull; ${userData?.email || ""} ${userData?.department ? `&bull; Dept: ${userData.department}` : ""}</p>
+            <p>Evercare Portal &bull; ${userData?.hospital_email || userData?.email || ""} ${userData?.department ? `&bull; Dept: ${userData.department}` : ""}</p>
           </div>
-          <div class="portal-header-actions"><button class="btn-portal-appointments" id="btn-portal-appointments" type="button">Appointments</button><button class="btn-portal-signout" id="btn-portal-logout">Sign Out</button></div>
+          <div class="portal-header-actions"><button class="btn-portal-appointments" id="btn-portal-appointments" type="button">Appointments</button><button class="btn-portal-signout" id="btn-portal-logout" type="button">Sign Out</button></div>
         </div>
         <div class="portal-layout">
           <aside class="portal-sidebar" aria-label="Care units">
@@ -1649,7 +1725,8 @@ function renderAuthenticatedBlankPage(userData) {
             ? "evercare_blood_donation_appointments"
             : "evercare_appointments";
       const records = getStoredList(key).filter(
-        (record) => record.userEmail === userData.email,
+        (record) =>
+          record.userEmail === (userData.email || userData.hospital_email),
       );
       const label =
         APPOINTMENT_TYPES.find((item) => item.id === type)?.label ||
@@ -1658,24 +1735,24 @@ function renderAuthenticatedBlankPage(userData) {
         ? records
             .map(
               (record) =>
-                `<div class="appointment-record"><strong>${record.name || userData.name}</strong><span>${record.date || "Date to be confirmed"} ${record.time || ""}</span><small>${record.department || (type === "blood-donation" ? "Blood Bank" : "To be assigned")} &bull; ${record.doctor || record.requiredGroup || "Hospital team"}</small><em>${record.id}</em></div>`,
+                `<div class="appointment-record"><strong>${record.name || userData.name || "Patient"}</strong><span>${record.date || "Date to be confirmed"} ${record.time || ""}</span><small>${record.department || (type === "blood-donation" ? "Blood Bank" : "To be assigned")} &bull; ${record.doctor || record.requiredGroup || "Hospital team"}</small><em>${record.id}</em></div>`,
             )
             .join("")
         : `<div class="portal-empty-state">No ${label.toLowerCase()} are scheduled for this account.</div>`;
       document.getElementById("portal-content").innerHTML =
-        `<div class="portal-form-heading"><span class="portal-eyebrow">Scheduled appointments</span><h3>${label}</h3><p>These bookings are linked to ${userData.name} and remain available on this device.</p></div><div class="appointment-record-list">${rows}</div>`;
+        `<div class="portal-form-heading"><span class="portal-eyebrow">Scheduled appointments</span><h3>${label}</h3><p>These bookings are linked to your profile and remain available on this device.</p></div><div class="appointment-record-list">${rows}</div>`;
     }),
   );
 
   const portalContent = document.getElementById("portal-content");
-  portalContent?.addEventListener("click", (event) => {
+  portalContent?.addEventListener("click", async (event) => {
     const actionButton = event.target.closest("[data-portal-action]");
     const backButton = event.target.closest("[data-portal-back]");
     const payButton = event.target.closest("[data-pay-form]");
     const recordPaymentButton = event.target.closest("[data-record-payment]");
     const dischargeButton = event.target.closest("[data-record-discharge]");
-    const editButton = event.target.closest("[data-record-edit]");
     const deleteButton = event.target.closest("[data-record-delete]");
+    const editPatientButton = event.target.closest("[data-record-edit]");
     const treatmentEditButton = event.target.closest("[data-treatment-edit]");
     const admissionEditButton = event.target.closest("[data-admission-edit]");
     const filterButton = event.target.closest("[data-record-period]");
@@ -1687,191 +1764,258 @@ function renderAuthenticatedBlankPage(userData) {
         (location) => location.id === selectedButton?.dataset.locationId,
       ) || PORTAL_LOCATIONS[0];
 
-    if (treatmentEditButton || admissionEditButton) {
-      const recordId =
-        treatmentEditButton?.dataset.treatmentEdit ||
-        admissionEditButton?.dataset.admissionEdit;
-      const records = JSON.parse(
-        localStorage.getItem("evercare_admissions") || "[]",
-      );
-      const record = records.find((item) => item.id === recordId);
-      if (record) {
-        portalContent.innerHTML = treatmentEditButton
-          ? createTreatmentFormTemplate(selectedLocation, record)
-          : createPortalFormTemplate(
-              "admission-edit",
-              selectedLocation,
-              record,
-            );
-        portalContent.querySelector("form").dataset.editingId = recordId;
-      }
-    } else if (recordPaymentButton) {
-      const recordRow = recordPaymentButton.closest(".portal-record-row");
-      recordPaymentButton.disabled = true;
-      recordPaymentButton.textContent = "Paid / No Due";
-      recordPaymentButton.classList.add("paid");
-      recordRow.querySelector("[data-record-discharge]").disabled = false;
-      recordRow.querySelector("[data-record-discharge]").textContent =
-        "Discharge (No Due Payment)";
-      const admissions = JSON.parse(
-        localStorage.getItem("evercare_admissions") || "[]",
-      );
-      localStorage.setItem(
-        "evercare_admissions",
-        JSON.stringify(
-          admissions.map((record) =>
-            record.id === recordPaymentButton.dataset.recordPayment
-              ? { ...record, paymentCleared: true }
-              : record,
-          ),
-        ),
-      );
-    } else if (dischargeButton) {
-      const admissions = JSON.parse(
-        localStorage.getItem("evercare_admissions") || "[]",
-      );
-      localStorage.setItem(
-        "evercare_admissions",
-        JSON.stringify(
-          admissions.filter(
-            (record) => record.id !== dischargeButton.dataset.recordDischarge,
-          ),
-        ),
-      );
-      dischargeButton.closest(".portal-record-row").remove();
-    } else if (editButton || deleteButton) {
-      const recordId =
-        editButton?.dataset.recordEdit || deleteButton?.dataset.recordDelete;
-      const records = JSON.parse(
-        localStorage.getItem("evercare_patient_records") || "[]",
-      );
-      const record = records.find((item) => item.id === recordId);
-      if (editButton && record) {
-        portalContent.innerHTML = createPortalFormTemplate(
-          "register",
+    try {
+      if (treatmentEditButton || admissionEditButton) {
+        const recordId =
+          treatmentEditButton?.dataset.treatmentEdit ||
+          admissionEditButton?.dataset.admissionEdit;
+        const records = await loadPortalRecords(
+          "admitted-list",
           selectedLocation,
-          record,
         );
-        portalContent.querySelector("form").dataset.editingId = recordId;
-        portalContent.querySelector("form").dataset.paymentComplete = "true";
-        portalContent.querySelector(".portal-pay-btn").disabled = true;
-        portalContent.querySelector(".portal-pay-btn").textContent =
-          "Payment Complete";
-        portalContent.querySelector(".portal-payment-status").textContent =
-          "Payment received";
-        portalContent
-          .querySelector(".portal-payment-status")
-          .classList.add("paid");
-        portalContent.querySelector(".portal-final-btn").disabled = false;
+        const record = records.find(
+          (item) => String(item.id) === String(recordId),
+        );
+        if (record) {
+          portalContent.innerHTML = treatmentEditButton
+            ? createTreatmentFormTemplate(selectedLocation, record)
+            : createPortalFormTemplate(
+                "admission-edit",
+                selectedLocation,
+                record,
+              );
+          const form = portalContent.querySelector("form");
+          if (form) form.dataset.editingId = recordId;
+        }
+      } else if (editPatientButton) {
+        const recordId = editPatientButton.dataset.recordEdit;
+        const records = await loadPortalRecords(
+          "registered-list",
+          selectedLocation,
+        );
+        const record = records.find(
+          (item) => String(item.id) === String(recordId),
+        );
+        if (record) {
+          portalContent.innerHTML = createPortalFormTemplate(
+            "register",
+            selectedLocation,
+            record,
+          );
+          const form = portalContent.querySelector("form");
+          if (form) form.dataset.editingId = recordId;
+        }
+      } else if (recordPaymentButton) {
+        const id = recordPaymentButton.dataset.recordPayment;
+        recordPaymentButton.disabled = true;
+        recordPaymentButton.textContent = "Processing...";
+        await requestApi(`/api/admissions/${id}`, {
+          method: "PUT",
+          body: { paymentCleared: true },
+          token: getAuthToken(),
+        });
+        await renderPortalRecordsView(
+          portalContent,
+          "admitted-list",
+          selectedLocation,
+        );
+      } else if (dischargeButton) {
+        const id = dischargeButton.dataset.recordDischarge;
+        if (confirm("Are you sure you want to discharge this patient?")) {
+          await requestApi(`/api/admissions/${id}`, {
+            method: "DELETE",
+            token: getAuthToken(),
+          });
+          await renderPortalRecordsView(
+            portalContent,
+            "admitted-list",
+            selectedLocation,
+          );
+        }
       } else if (deleteButton) {
-        deletePortalRecord("evercare_patient_records", recordId);
-        deleteButton.closest(".portal-record-row").remove();
+        const id = deleteButton.dataset.recordDelete;
+        if (confirm("Delete this patient registration permanently?")) {
+          await requestApi(`/api/patients/${id}`, {
+            method: "DELETE",
+            token: getAuthToken(),
+          });
+          await renderPortalRecordsView(
+            portalContent,
+            "registered-list",
+            selectedLocation,
+          );
+        }
+      } else if (filterButton) {
+        await renderPortalRecordsView(
+          portalContent,
+          filterButton.dataset.recordType,
+          selectedLocation,
+          filterButton.dataset.recordPeriod,
+        );
+      } else if (
+        actionButton &&
+        ["register", "admission"].includes(actionButton.dataset.portalAction)
+      ) {
+        portalContent.innerHTML = createPortalFormTemplate(
+          actionButton.dataset.portalAction,
+          selectedLocation,
+        );
+      } else if (
+        actionButton &&
+        ["admitted-list", "registered-list"].includes(
+          actionButton.dataset.portalAction,
+        )
+      ) {
+        await renderPortalRecordsView(
+          portalContent,
+          actionButton.dataset.portalAction,
+          selectedLocation,
+        );
+      } else if (backButton) {
+        portalContent.innerHTML =
+          createPortalLocationTemplate(selectedLocation);
+      } else if (payButton) {
+        const form = payButton.closest("form");
+        form.dataset.paymentComplete = "true";
+        const finalBtn = form.querySelector(".portal-final-btn");
+        if (finalBtn) finalBtn.disabled = false;
+        payButton.disabled = true;
+        payButton.textContent = "Payment Complete";
+        const statusEl = form.querySelector(".portal-payment-status");
+        if (statusEl) {
+          statusEl.textContent = "Payment received";
+          statusEl.classList.add("paid");
+        }
       }
-    } else if (filterButton) {
-      portalContent.innerHTML = createPortalRecordsTemplate(
-        filterButton.dataset.recordType,
-        selectedLocation,
-        filterButton.dataset.recordPeriod,
-      );
-    } else if (
-      actionButton &&
-      ["register", "admission"].includes(actionButton.dataset.portalAction)
-    ) {
-      portalContent.innerHTML = createPortalFormTemplate(
-        actionButton.dataset.portalAction,
-        selectedLocation,
-      );
-    } else if (
-      actionButton &&
-      ["admitted-list", "registered-list"].includes(
-        actionButton.dataset.portalAction,
-      )
-    ) {
-      portalContent.innerHTML = createPortalRecordsTemplate(
-        actionButton.dataset.portalAction,
-        selectedLocation,
-      );
-    } else if (backButton) {
-      portalContent.innerHTML = createPortalLocationTemplate(selectedLocation);
-    } else if (payButton) {
-      const form = payButton.closest("form");
-      form.dataset.paymentComplete = "true";
-      form.querySelector(".portal-final-btn").disabled = false;
-      payButton.disabled = true;
-      payButton.textContent = "Payment Complete";
-      form.querySelector(".portal-payment-status").textContent =
-        "Payment received";
-      form.querySelector(".portal-payment-status").classList.add("paid");
+    } catch (err) {
+      alert(`Action failed: ${err.message}`);
     }
   });
 
-  portalContent?.addEventListener("change", (event) => {
-    if (
-      !["admission-room-type", "admission-diet", "admission-stay"].includes(
-        event.target.id,
-      )
-    )
-      return;
+  const updateAdmissionPrice = (form) => {
+    if (!form || form.id !== "patient-admission-form") return;
     const roomPrices = { "8-bed": 5000, "4-bed": 6500, single: 8000 };
-    const form = event.target.closest("form");
-    const roomType = form.querySelector("#admission-room-type").value;
-    const diet = form.querySelector("#admission-diet").value;
-    const days = Number(form.querySelector("#admission-stay").value) || 0;
+    const roomType =
+      form.querySelector("#admission-room-type")?.value || "8-bed";
+    const diet = form.querySelector("#admission-diet")?.value || "Vegetarian";
+    const days = Number(form.querySelector("#admission-stay")?.value) || 0;
     const total =
       (roomPrices[roomType] + (diet === "Non-vegetarian" ? 200 : 0)) * days;
-    form.querySelector("#admission-payment-amount").textContent = days
-      ? `INR ${total.toLocaleString("en-IN")} total for ${days} day${days === 1 ? "" : "s"}`
-      : "Select stay duration for total";
+    const amountEl = form.querySelector("#admission-payment-amount");
+    if (amountEl) {
+      amountEl.textContent = days
+        ? `INR ${total.toLocaleString("en-IN")} total for ${days} day${days === 1 ? "" : "s"}`
+        : "Select stay duration for total";
+    }
+  };
+
+  portalContent?.addEventListener("input", (event) => {
+    updateAdmissionPrice(event.target.closest("form"));
   });
 
-  portalContent?.addEventListener("submit", (event) => {
+  portalContent?.addEventListener("change", (event) => {
+    updateAdmissionPrice(event.target.closest("form"));
+  });
+
+  portalContent?.addEventListener("submit", async (event) => {
     const form = event.target.closest("form");
     if (!form) return;
     event.preventDefault();
     const status = form.querySelector(".portal-form-status");
+
     if (!form.dataset.editingId && form.dataset.paymentComplete !== "true") {
-      status.textContent = "Complete payment before submitting this form.";
-      status.className = "portal-form-status error";
+      if (status) {
+        status.textContent = "Complete payment before submitting this form.";
+        status.className = "portal-form-status error";
+      }
       return;
     }
 
     const formData = Object.fromEntries(new FormData(form).entries());
     const isRegistration = form.id === "patient-registration-form";
     const isTreatmentUpdate = form.id === "treatment-plan-form";
+
     if (
       !isRegistration &&
       !isTreatmentUpdate &&
       (!formData.stay || Number(formData.stay) < 1)
-    )
+    ) {
+      if (status) {
+        status.textContent = "Enter a valid stay duration (at least 1 day).";
+        status.className = "portal-form-status error";
+      }
       return;
-    const recordId = createPortalRecordId(isRegistration ? "EVR" : "EVA");
+    }
+
     if (!isRegistration && !isTreatmentUpdate) {
       const roomPrices = { "8-bed": 5000, "4-bed": 6500, single: 8000 };
       formData.paymentAmount =
-        roomPrices[formData.roomType] +
-        (formData.diet === "Non-vegetarian" ? 200 : 0);
+        (roomPrices[formData.roomType] || 5000) +
+        (formData.diet === "Non-vegetarian" ? 200 : 0) *
+          (Number(formData.stay) || 1);
     }
-    const storageKey = isRegistration
-      ? "evercare_patient_records"
-      : "evercare_admissions";
-    if (form.dataset.editingId) {
-      updatePortalRecord(storageKey, form.dataset.editingId, formData);
-    } else {
-      savePortalRecord(storageKey, {
-        id: recordId,
-        ...formData,
-        paymentCleared: false,
-        createdAt: new Date().toISOString(),
-      });
+
+    if (status) {
+      status.textContent = "Saving to hospital database...";
+      status.className = "portal-form-status";
     }
-    status.textContent = isTreatmentUpdate
-      ? "Treatment plan and medicines updated successfully."
-      : isRegistration
-        ? `Patient registered successfully. Registration ID: ${recordId}`
-        : `Admission confirmed successfully. Admission ID: ${recordId}`;
-    status.className = "portal-form-status success";
-    if (!isTreatmentUpdate)
-      form.querySelector(".portal-final-btn").disabled = true;
+
+    const finalBtn = form.querySelector(".portal-final-btn");
+    if (finalBtn) finalBtn.disabled = true;
+
+    try {
+      if (form.dataset.editingId) {
+        const id = form.dataset.editingId;
+        const endpoint = isTreatmentUpdate
+          ? `/api/admissions/${id}`
+          : isRegistration
+            ? `/api/patients/${id}`
+            : `/api/admissions/${id}`;
+        await requestApi(endpoint, {
+          method: "PUT",
+          body: formData,
+          token: getAuthToken(),
+        });
+        if (status)
+          status.textContent = "Record updated successfully in database.";
+      } else {
+        const endpoint = isRegistration ? "/api/patients" : "/api/admissions";
+        await requestApi(endpoint, {
+          method: "POST",
+          body: formData,
+          token: getAuthToken(),
+        });
+        if (status) {
+          status.textContent = isRegistration
+            ? "Patient registered successfully! Loading registered list..."
+            : "Admission confirmed successfully! Loading admitted list...";
+          status.className = "portal-form-status success";
+        }
+      }
+
+      const selectedButton = document.querySelector(
+        ".portal-location-btn.active",
+      );
+      const selectedLocation =
+        PORTAL_LOCATIONS.find(
+          (location) => location.id === selectedButton?.dataset.locationId,
+        ) || PORTAL_LOCATIONS[0];
+
+      setTimeout(async () => {
+        await renderPortalRecordsView(
+          portalContent,
+          isRegistration ? "registered-list" : "admitted-list",
+          selectedLocation,
+        );
+      }, 750);
+    } catch (err) {
+      if (status) {
+        status.textContent =
+          err.message || "Failed to persist to SQLite database.";
+        status.className = "portal-form-status error";
+      }
+      if (finalBtn) finalBtn.disabled = false;
+    }
   });
 }
 
@@ -1882,7 +2026,7 @@ function renderDrawer() {
   drawerContainer.innerHTML = DRAWER_ITEMS.map(
     (item) => `
     <li class="drawer-nav-item">
-      <button class="drawer-nav-btn ${item.interactive ? "" : "drawer-static"}" id="${item.id}">
+      <button class="drawer-nav-btn ${item.interactive ? "" : "drawer-static"}" id="${item.id}" type="button">
         ${item.label} <span>&rsaquo;</span>
       </button>
     </li>
@@ -1956,6 +2100,48 @@ function initSlider() {
   });
 
   startSliderAutoPlay();
+}
+
+function initDiscoverSlider() {
+  const slides = [...document.querySelectorAll("[data-discover-slide]")];
+  const dots = [...document.querySelectorAll("[data-discover-dot]")];
+  if (!slides.length) return;
+
+  let current = 0;
+  const select = (index) => {
+    current = (index + slides.length) % slides.length;
+    slides.forEach((slide, slideIndex) => {
+      const active = slideIndex === current;
+      slide.classList.toggle("active", active);
+      slide.setAttribute("aria-hidden", String(!active));
+      dots[slideIndex].classList.toggle("active", active);
+      dots[slideIndex].setAttribute("aria-pressed", String(active));
+    });
+  };
+  const restart = () => {
+    clearInterval(autoPlayTimer);
+    autoPlayTimer = setInterval(() => select(current + 1), 5000);
+  };
+
+  document
+    .querySelector("[data-discover-prev]")
+    ?.addEventListener("click", () => {
+      select(current - 1);
+      restart();
+    });
+  document
+    .querySelector("[data-discover-next]")
+    ?.addEventListener("click", () => {
+      select(current + 1);
+      restart();
+    });
+  dots.forEach((dot) =>
+    dot.addEventListener("click", () => {
+      select(Number(dot.dataset.discoverDot));
+      restart();
+    }),
+  );
+  restart();
 }
 
 function navigateAndHighlightContact() {
@@ -2043,6 +2229,7 @@ function renderBookAppointment() {
     },
   );
 }
+
 function renderHealthCheck() {
   renderPatientView(
     patientForm("Book a Health Check", "health-check", "service-health-check"),
@@ -2082,19 +2269,52 @@ function renderPharmacy() {
     bindPatientBack();
     const cart = [];
     const count = document.getElementById("cart-count");
+    const cartStatus = document.getElementById("cart-status");
     const cartItems = document.getElementById("cart-items");
     const prescriptionReview = document.querySelector(
       ".prescription-review-form",
     );
+    const orderForm = document.querySelector(".pharmacy-order-form");
+
     const renderCart = () => {
-      count.textContent = `Cart: ${cart.reduce((total, item) => total + item.quantity, 0)} item${cart.reduce((total, item) => total + item.quantity, 0) === 1 ? "" : "s"}`;
+      const totalQuantity = cart.reduce(
+        (total, item) => total + item.quantity,
+        0,
+      );
+      count.textContent = `Cart: ${totalQuantity} item${totalQuantity === 1 ? "" : "s"}`;
+
       cartItems.innerHTML = cart
         .map(
-          (item) =>
-            `<div class="cart-row"><span><strong>${item.name}</strong><small>INR ${item.price} each</small></span><span class="cart-controls"><button type="button" data-cart-minus="${item.id}" aria-label="Decrease ${item.name}">-</button><b>${item.quantity}</b><button type="button" data-cart-plus="${item.id}" aria-label="Increase ${item.name}">+</button></span></div>`,
+          (item) => `
+            <div class="cart-row" style="display: flex; justify-content: space-between; align-items: center; padding: 10px 0; border-bottom: 1px solid #e2e8f0;">
+              <div>
+                <strong>${item.name}</strong>
+                <div style="font-size: 0.85rem; color: #64748b; margin-top: 3px;">
+                  <span>INR ${item.price} each &bull; <b>Qty: ${item.quantity}</b></span>
+                  ${
+                    item.prescription
+                      ? `<span style="display: inline-block; margin-left: 8px; color: #dc2626; font-weight: 600; background: #fee2e2; padding: 2px 6px; border-radius: 4px; font-size: 0.75rem;">Prescription Required</span>`
+                      : `<span style="display: inline-block; margin-left: 8px; color: #16a34a; font-weight: 500; font-size: 0.75rem;">Over-the-counter</span>`
+                  }
+                </div>
+              </div>
+              <span class="cart-controls" style="display: flex; align-items: center; gap: 6px;">
+                <button type="button" class="compact" data-cart-minus="${item.id}" aria-label="Decrease ${item.name}" style="padding: 3px 10px; cursor: pointer;">-</button>
+                <span style="min-width: 20px; text-align: center; font-weight: bold;">${item.quantity}</span>
+                <button type="button" class="compact" data-cart-plus="${item.id}" aria-label="Increase ${item.name}" ${totalQuantity >= 10 ? "disabled" : ""} style="padding: 3px 10px; cursor: pointer;">+</button>
+                <button type="button" class="cart-remove" data-cart-remove="${item.id}" aria-label="Remove ${item.name} from cart" style="margin-left: 8px; padding: 4px 10px; cursor: pointer;">Remove</button>
+              </span>
+            </div>
+          `,
         )
         .join("");
+
+      // Keep the review form's stored cart in sync with any adjustments
+      if (orderForm && !orderForm.hidden) {
+        orderForm.dataset.cart = JSON.stringify(cart);
+      }
     };
+
     document.querySelectorAll("[data-add-medicine]").forEach((button) =>
       button.addEventListener("click", () => {
         const medicine = MEDICINE_CATALOG.find(
@@ -2103,10 +2323,29 @@ function renderPharmacy() {
         const quantityInput = document.querySelector(
           `[data-medicine-quantity="${medicine?.id}"]`,
         );
-        const quantity = Math.max(1, Number(quantityInput?.value) || 1);
+        const quantity = Number(quantityInput?.value);
+        const totalQuantity = cart.reduce(
+          (total, item) => total + item.quantity,
+          0,
+        );
+        if (!medicine || !Number.isInteger(quantity) || quantity < 1) {
+          cartStatus.textContent =
+            "Enter a quantity of at least 1 before adding a medicine.";
+          cartStatus.classList.add("error");
+          return;
+        }
+        if (quantity > 10 || totalQuantity + quantity > 10) {
+          cartStatus.textContent =
+            "A maximum of 10 medicine units can be ordered at one time.";
+          cartStatus.classList.add("error");
+          return;
+        }
         const existing = cart.find((item) => item.id === medicine?.id);
         if (medicine && existing) existing.quantity += quantity;
         else if (medicine) cart.push({ ...medicine, quantity });
+        quantityInput.value = "0";
+        cartStatus.textContent = "Added to your order.";
+        cartStatus.classList.remove("error");
         renderCart();
         button.textContent = "Added";
         if (medicine?.prescription) {
@@ -2121,15 +2360,49 @@ function renderPharmacy() {
         }
       }),
     );
+
     cartItems.addEventListener("click", (event) => {
       const plus = event.target.closest("[data-cart-plus]");
       const minus = event.target.closest("[data-cart-minus]");
-      const id = plus?.dataset.cartPlus || minus?.dataset.cartMinus;
+      const remove = event.target.closest("[data-cart-remove]");
+      const id =
+        plus?.dataset.cartPlus ||
+        minus?.dataset.cartMinus ||
+        remove?.dataset.cartRemove;
       const item = cart.find((entry) => entry.id === id);
       if (!item) return;
-      item.quantity = Math.max(1, item.quantity + (plus ? 1 : -1));
+
+      if (remove) {
+        cart.splice(cart.indexOf(item), 1);
+        cartStatus.textContent = `${item.name} removed from your order.`;
+      } else if (plus) {
+        const totalQuantity = cart.reduce(
+          (total, entry) => total + entry.quantity,
+          0,
+        );
+        if (totalQuantity >= 10) {
+          cartStatus.textContent =
+            "A maximum of 10 medicine units can be ordered at one time.";
+          cartStatus.classList.add("error");
+          return;
+        }
+        item.quantity += 1;
+        cartStatus.textContent = `Increased ${item.name} to ${item.quantity}.`;
+        cartStatus.classList.remove("error");
+      } else if (minus) {
+        if (item.quantity > 1) {
+          item.quantity -= 1;
+          cartStatus.textContent = `Decreased ${item.name} to ${item.quantity}.`;
+        } else {
+          cart.splice(cart.indexOf(item), 1);
+          cartStatus.textContent = `${item.name} removed from your order.`;
+        }
+        cartStatus.classList.remove("error");
+      }
+
       renderCart();
     });
+
     document
       .querySelector("[data-review-doctor]")
       ?.addEventListener("click", () => {
@@ -2143,6 +2416,7 @@ function renderPharmacy() {
         reviewForm.querySelector(".patient-status").className =
           "patient-status success";
       });
+
     document
       .querySelector("[data-review-cart]")
       ?.addEventListener("click", () => {
@@ -2150,32 +2424,30 @@ function renderPharmacy() {
           count.textContent = "Cart is empty - choose a medicine first";
           return;
         }
-        const form = document.querySelector(".pharmacy-order-form");
-        form.hidden = false;
-        form.dataset.cart = JSON.stringify(cart);
-        form.scrollIntoView({ behavior: "smooth" });
+        orderForm.hidden = false;
+        orderForm.dataset.cart = JSON.stringify(cart);
+        orderForm.scrollIntoView({ behavior: "smooth" });
       });
-    document
-      .querySelector(".pharmacy-order-form")
-      ?.addEventListener("submit", (event) => {
-        event.preventDefault();
-        const form = event.currentTarget;
-        const items = JSON.parse(form.dataset.cart || "[]");
-        const needsPrescription = items.some((item) => item.prescription);
-        const prescription = form.querySelector("[name=prescription]");
-        if (needsPrescription && !prescription.files.length) {
-          form.querySelector(".patient-status").textContent =
-            "A doctor's prescription is mandatory for one or more selected medicines.";
-          form.querySelector(".patient-status").className =
-            "patient-status error";
-          return;
-        }
-        const orderId = `EC-${Date.now().toString().slice(-7)}`;
-        form.innerHTML = `<div class="confirmation-box"><span class="success-mark">&#10003;</span><h3>Order placed successfully</h3><p>Order ${orderId} has been placed for ${items.map((item) => item.name).join(", ")}.</p><p>Payment is simulated for this frontend prototype. The dispensary team will confirm fulfilment.</p><button class="patient-submit" data-patient-back type="button">Back to Home</button></div>`;
-        form
-          .querySelector("[data-patient-back]")
-          .addEventListener("click", renderHome);
-      });
+
+    orderForm?.addEventListener("submit", (event) => {
+      event.preventDefault();
+      const form = event.currentTarget;
+      const items = JSON.parse(form.dataset.cart || "[]");
+      const needsPrescription = items.some((item) => item.prescription);
+      const prescription = form.querySelector("[name=prescription]");
+      if (needsPrescription && !prescription.files.length) {
+        form.querySelector(".patient-status").textContent =
+          "A doctor's prescription is mandatory for one or more selected medicines.";
+        form.querySelector(".patient-status").className =
+          "patient-status error";
+        return;
+      }
+      const orderId = `EC-${Date.now().toString().slice(-7)}`;
+      form.innerHTML = `<div class="confirmation-box"><span class="success-mark">&#10003;</span><h3>Order placed successfully</h3><p>Order ${orderId} has been placed for ${items.map((item) => `${item.name} (Qty:${item.quantity})`).join(", ")}.</p><p>Payment is simulated for this frontend prototype. The dispensary team will confirm fulfilment.</p><button class="patient-submit" data-patient-back type="button">Back to Home</button></div>`;
+      form
+        .querySelector("[data-patient-back]")
+        .addEventListener("click", () => renderHome());
+    });
   });
 }
 
@@ -2295,7 +2567,7 @@ function renderHome(returnService = null) {
       }),
     );
   } else {
-    window.scrollTo({ top: 0, behavior: "smooth" });
+    window.scrollTo(0, 0);
   }
 }
 
@@ -2319,6 +2591,7 @@ function renderAboutUs() {
   document.body.classList.remove("auth-mode");
   clearInterval(autoPlayTimer);
   appRoot.innerHTML = createAboutUsViewTemplate();
+  initDiscoverSlider();
   setActiveNavButton("btn-discover");
   window.scrollTo({ top: 0, behavior: "smooth" });
 }
@@ -2332,49 +2605,55 @@ function renderInventories() {
 }
 
 // --- Auth Controllers ---
-function renderSignIn() {
+function renderSignIn(optionalNotice = null) {
   clearInterval(autoPlayTimer);
   document.body.classList.add("auth-mode");
   appRoot.innerHTML = createSignInViewTemplate();
   window.scrollTo({ top: 0, behavior: "smooth" });
 
+  const statusBox = document.getElementById("auth-status");
+  if (optionalNotice && statusBox) {
+    statusBox.className = "auth-status-msg success";
+    statusBox.textContent = optionalNotice;
+  }
+
   document
     .getElementById("btn-goto-register")
-    ?.addEventListener("click", () => renderRegisterStep(1));
+    ?.addEventListener("click", (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      renderRegisterStep(1);
+    });
 
-  const form = document.getElementById("signin-form");
-  form?.addEventListener("submit", (e) => {
+  const submitBtn = document.getElementById("btn-submit-signin");
+  submitBtn?.addEventListener("click", async (e) => {
     e.preventDefault();
-    const email = document
-      .getElementById("signin-email")
-      .value.trim()
-      .toLowerCase();
-    const password = document.getElementById("signin-password").value;
-    const statusBox = document.getElementById("auth-status");
+    e.stopPropagation();
+    const hospitalEmail =
+      document.getElementById("signin-email")?.value.trim().toLowerCase() || "";
+    const password = document.getElementById("signin-password")?.value || "";
+    const adminPasscode =
+      document.getElementById("signin-admin-passcode")?.value.trim() || "";
 
-    const users = getRegisteredUsers();
-    const matchedUser = users.find(
-      (u) => u.email.toLowerCase() === email && u.password === password,
-    );
-
-    if (matchedUser) {
-      const token = generateMockJWT({
-        sub: matchedUser.email,
-        name: matchedUser.name,
-        role: "patient",
+    submitBtn.disabled = true;
+    try {
+      const session = await requestApi("/api/auth/login", {
+        method: "POST",
+        body: {
+          hospital_email: hospitalEmail,
+          password,
+          admin_security_code: adminPasscode,
+        },
       });
-      setAuthToken(token);
-
+      setApiSession(session);
       statusBox.className = "auth-status-msg success";
       statusBox.textContent = "Authentication successful! Opening portal...";
-
-      setTimeout(() => {
-        renderAuthenticatedBlankPage(matchedUser);
-      }, 900);
-    } else {
+      setTimeout(() => renderAuthenticatedBlankPage(session.user), 700);
+    } catch (error) {
       statusBox.className = "auth-status-msg error";
-      statusBox.textContent =
-        "Invalid email or password. Passwords are case-sensitive.";
+      statusBox.textContent = error.message;
+    } finally {
+      submitBtn.disabled = false;
     }
   });
 }
@@ -2385,127 +2664,309 @@ function renderRegisterStep(step) {
 
   if (step === 1) {
     appRoot.innerHTML = createRegisterStep1Template();
+
     document
       .getElementById("btn-goto-signin")
-      ?.addEventListener("click", renderSignIn);
+      ?.addEventListener("click", (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        renderSignIn();
+      });
 
-    const form = document.getElementById("register-step1-form");
-    form?.addEventListener("submit", (e) => {
-      e.preventDefault();
-      const email = document.getElementById("reg-email").value.trim();
-      const name = document.getElementById("reg-name").value.trim();
-      const department = document.getElementById("reg-department").value;
-      const age = document.getElementById("reg-age").value.trim();
-      const phone = document.getElementById("reg-phone").value.trim();
+    document
+      .getElementById("btn-send-otp")
+      ?.addEventListener("click", async (event) => {
+        event.preventDefault();
+        event.stopPropagation();
+
+        const statusBox = document.getElementById("auth-status");
+        const first_name =
+          document.getElementById("reg-first-name")?.value.trim() || "";
+        const last_name =
+          document.getElementById("reg-last-name")?.value.trim() || "";
+        const personal_email =
+          document
+            .getElementById("reg-personal-email")
+            ?.value.trim()
+            .toLowerCase() || "";
+        const department =
+          document.getElementById("reg-department")?.value || "";
+
+        if (!personal_email) {
+          statusBox.className = "auth-status-msg error";
+          statusBox.textContent =
+            "Please enter your personal email address first.";
+          return;
+        }
+        if (!first_name || !department) {
+          statusBox.className = "auth-status-msg error";
+          statusBox.textContent =
+            "Please fill in your name and select a department.";
+          return;
+        }
+
+        regState.data = { first_name, last_name, personal_email, department };
+        regState.challengeId = null;
+        regState.verificationToken = null;
+        regState.otpVerified = false;
+
+        const sendBtn = document.getElementById("btn-send-otp");
+        sendBtn.disabled = true;
+        sendBtn.textContent = "Sending...";
+        statusBox.className = "auth-status-msg";
+        statusBox.textContent = "Sending verification code...";
+
+        try {
+          const result = await requestApi("/api/auth/send-otp", {
+            method: "POST",
+            body: {
+              first_name,
+              last_name,
+              personal_email,
+              department,
+            },
+          });
+
+          regState.challengeId = result.challengeId || result.challenge_id;
+          statusBox.className = "auth-status-msg success";
+          statusBox.textContent =
+            "6-digit OTP code sent! Check your email or backend terminal.";
+
+          const otpInput = document.getElementById("reg-otp");
+          if (otpInput) {
+            otpInput.focus();
+          }
+        } catch (error) {
+          statusBox.className = "auth-status-msg error";
+          statusBox.textContent = error.message;
+        } finally {
+          sendBtn.disabled = false;
+          sendBtn.textContent = "Resend OTP";
+        }
+      });
+
+    const executeVerifyOtp = async () => {
       const statusBox = document.getElementById("auth-status");
+      const code = document.getElementById("reg-otp")?.value.trim() || "";
+      const personal_email =
+        document
+          .getElementById("reg-personal-email")
+          ?.value.trim()
+          .toLowerCase() || regState.data.personal_email;
 
-      if (!department) {
-        statusBox.className = "auth-status-msg error";
-        statusBox.textContent = "Please select a department.";
-        return;
-      }
-
-      const existingUsers = getRegisteredUsers();
-      if (
-        existingUsers.some((u) => u.email.toLowerCase() === email.toLowerCase())
-      ) {
+      if (!regState.challengeId) {
         statusBox.className = "auth-status-msg error";
         statusBox.textContent =
-          "An account with this email already exists. Please Sign In.";
-        return;
+          "Please click 'Send OTP' first before verifying.";
+        return false;
       }
 
-      regState.data = { email, name, age, phone, department };
-      regState.generatedOtp = Math.floor(
-        100000 + Math.random() * 900000,
-      ).toString();
-      renderRegisterStep(2);
-    });
-  } else if (step === 2) {
+      if (!/^[0-9]{6}$/.test(code)) {
+        statusBox.className = "auth-status-msg error";
+        statusBox.textContent = "Please enter the complete 6-digit code.";
+        return false;
+      }
+
+      const continueBtn = document.getElementById("btn-step1-continue");
+      if (continueBtn) continueBtn.disabled = true;
+
+      statusBox.className = "auth-status-msg";
+      statusBox.textContent = "Verifying code with hospital security...";
+
+      try {
+        const result = await requestApi("/api/auth/verify-otp", {
+          method: "POST",
+          body: {
+            personal_email,
+            challengeId: regState.challengeId,
+            challenge_id: regState.challengeId,
+            code,
+          },
+        });
+
+        const token =
+          result.verificationToken ||
+          result.verification_token ||
+          result.token ||
+          (result.data &&
+            (result.data.verificationToken || result.data.verification_token));
+
+        regState.verificationToken = token;
+        regState.otpVerified = true;
+
+        regState.data.first_name =
+          document.getElementById("reg-first-name")?.value.trim() ||
+          regState.data.first_name;
+        regState.data.last_name =
+          document.getElementById("reg-last-name")?.value.trim() ||
+          regState.data.last_name;
+        regState.data.personal_email = personal_email;
+        regState.data.department =
+          document.getElementById("reg-department")?.value ||
+          regState.data.department;
+
+        // Transition to Step 2 ("Code Verified" screen)
+        renderRegisterStep(2);
+        return true;
+      } catch (error) {
+        statusBox.className = "auth-status-msg error";
+        statusBox.textContent = error.message;
+        if (continueBtn) continueBtn.disabled = false;
+        return false;
+      }
+    };
+
+    document
+      .getElementById("btn-step1-continue")
+      ?.addEventListener("click", async (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+
+        const statusBox = document.getElementById("auth-status");
+        const first_name =
+          document.getElementById("reg-first-name")?.value.trim() || "";
+        const personal_email =
+          document
+            .getElementById("reg-personal-email")
+            ?.value.trim()
+            .toLowerCase() || "";
+        const department =
+          document.getElementById("reg-department")?.value || "";
+
+        if (!first_name || !personal_email || !department) {
+          statusBox.className = "auth-status-msg error";
+          statusBox.textContent =
+            "Please fill in your name, email, and department.";
+          return;
+        }
+
+        if (regState.otpVerified && regState.verificationToken) {
+          renderRegisterStep(2);
+        } else {
+          await executeVerifyOtp();
+        }
+      });
+
+    return;
+  }
+
+  // STEP 2: "Code Verified" Interstitial View
+  if (step === 2) {
     appRoot.innerHTML = createRegisterStep2Template();
 
-    document.getElementById("btn-resend-otp")?.addEventListener("click", () => {
-      regState.generatedOtp = Math.floor(
-        100000 + Math.random() * 900000,
-      ).toString();
-      renderRegisterStep(2);
-    });
-
-    const form = document.getElementById("register-step2-form");
-    form?.addEventListener("submit", (e) => {
-      e.preventDefault();
-      const enteredOtp = document.getElementById("reg-otp").value.trim();
-      const statusBox = document.getElementById("auth-status");
-
-      if (enteredOtp === regState.generatedOtp) {
+    document
+      .getElementById("btn-step2-continue-password")
+      ?.addEventListener("click", (e) => {
+        e.preventDefault();
+        e.stopPropagation();
         renderRegisterStep(3);
-      } else {
-        statusBox.className = "auth-status-msg error";
-        statusBox.textContent = "Invalid OTP code. Please check and try again.";
-      }
-    });
-  } else if (step === 3) {
+      });
+
+    document
+      .getElementById("btn-step2-back")
+      ?.addEventListener("click", (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        renderRegisterStep(1);
+      });
+
+    return;
+  }
+
+  // STEP 3: Password setup & return to login
+  if (step === 3) {
     appRoot.innerHTML = createRegisterStep3Template();
 
-    const form = document.getElementById("register-step3-form");
-    form?.addEventListener("submit", (e) => {
-      e.preventDefault();
-      const pwd = document.getElementById("reg-password").value;
-      const confirmPwd = document.getElementById("reg-confirm-password").value;
-      const statusBox = document.getElementById("auth-status");
+    document
+      .getElementById("btn-complete-register")
+      ?.addEventListener("click", async (event) => {
+        event.preventDefault();
+        event.stopPropagation();
 
-      // Password Complexity Validation
-      const validation = validateStrongPassword(pwd);
-      if (!validation.valid) {
-        statusBox.className = "auth-status-msg error";
-        statusBox.textContent = validation.message;
-        return;
-      }
+        const password = document.getElementById("reg-password")?.value || "";
+        const confirmPassword =
+          document.getElementById("reg-confirm-password")?.value || "";
+        const statusBox = document.getElementById("auth-status");
+        const submitButton = document.getElementById("btn-complete-register");
 
-      if (pwd !== confirmPwd) {
-        statusBox.className = "auth-status-msg error";
-        statusBox.textContent =
-          "Passwords do not match. Please verify case sensitivity.";
-        return;
-      }
+        if (!regState.verificationToken) {
+          statusBox.className = "auth-status-msg error";
+          statusBox.textContent =
+            "Email verification was not completed. Please return to Step 1.";
+          return;
+        }
 
-      const newUser = {
-        ...regState.data,
-        password: pwd,
-      };
-      saveUser(newUser);
+        const validation = validateStrongPassword(password);
+        if (!validation.valid) {
+          statusBox.className = "auth-status-msg error";
+          statusBox.textContent = validation.message;
+          return;
+        }
 
-      const token = generateMockJWT({
-        sub: newUser.email,
-        name: newUser.name,
-        role: "patient",
+        if (password !== confirmPassword) {
+          statusBox.className = "auth-status-msg error";
+          statusBox.textContent =
+            "Passwords do not match. Please verify case sensitivity.";
+          return;
+        }
+
+        submitButton.disabled = true;
+        statusBox.className = "auth-status-msg";
+        statusBox.textContent = "Creating your hospital staff account...";
+
+        try {
+          const result = await requestApi("/api/auth/register", {
+            method: "POST",
+            body: {
+              first_name: regState.data.first_name,
+              last_name: regState.data.last_name,
+              personal_email: regState.data.personal_email,
+              department: regState.data.department,
+              password,
+              verificationToken: regState.verificationToken,
+              verification_token: regState.verificationToken,
+            },
+          });
+
+          // DO NOT auto-login or store tokens (setApiSession omitted)
+          const assignedEmail =
+            result?.user?.hospital_email ||
+            result?.hospital_email ||
+            "your official hospital email";
+          const successNotice = `Registration successful! Your login handle is: ${assignedEmail}. Please sign in to continue.`;
+
+          // Reset registration state
+          regState = {
+            step: 1,
+            data: {
+              first_name: "",
+              last_name: "",
+              personal_email: "",
+              department: "",
+            },
+            challengeId: null,
+            verificationToken: null,
+            otpVerified: false,
+          };
+
+          // Redirect to the Sign In page so the employee logs in explicitly
+          renderSignIn(successNotice);
+        } catch (error) {
+          statusBox.className = "auth-status-msg error";
+          statusBox.textContent = error.message;
+          submitButton.disabled = false;
+        }
       });
-      setAuthToken(token);
-
-      statusBox.className = "auth-status-msg success";
-      statusBox.textContent =
-        "Account verified & registered successfully! Opening portal...";
-
-      const registeredUser = { ...newUser };
-      regState = {
-        step: 1,
-        data: { email: "", name: "", age: "", phone: "", department: "" },
-        generatedOtp: null,
-      };
-
-      setTimeout(() => {
-        renderAuthenticatedBlankPage(registeredUser);
-      }, 1000);
-    });
+    return;
   }
 }
 
 // --- Event Binding ---
 function initAppEvents() {
   renderDrawer();
-
-  // Header Nav Actions
-  document.getElementById("btn-home")?.addEventListener("click", renderHome);
+  document
+    .getElementById("btn-home")
+    ?.addEventListener("click", () => renderHome());
   document
     .getElementById("btn-discover")
     ?.addEventListener("click", renderAboutUs);
@@ -2517,18 +2978,17 @@ function initAppEvents() {
     ?.addEventListener("click", renderPatientsGuide);
   document
     .getElementById("btn-signin")
-    ?.addEventListener("click", renderSignIn);
+    ?.addEventListener("click", () => renderSignIn());
   document
     .getElementById("header-logo-btn")
-    ?.addEventListener("click", renderHome);
+    ?.addEventListener("click", () => renderHome());
   document
     .getElementById("footer-logo-btn")
-    ?.addEventListener("click", renderHome);
+    ?.addEventListener("click", () => renderHome());
   document
     .getElementById("footer-link-home")
-    ?.addEventListener("click", renderHome);
+    ?.addEventListener("click", () => renderHome());
 
-  // Drawer Toggles
   const navDrawer = document.getElementById("nav-drawer");
   const navDrawerBackdrop = document.getElementById("nav-drawer-backdrop");
   const navToggleBtn = document.getElementById("nav-toggle-btn");
@@ -2548,7 +3008,6 @@ function initAppEvents() {
   drawerCloseBtn?.addEventListener("click", closeDrawer);
   navDrawerBackdrop?.addEventListener("click", closeDrawer);
 
-  // Drawer Buttons
   document.getElementById("drawer-btn-home")?.addEventListener("click", () => {
     closeDrawer();
     renderHome();
@@ -2578,7 +3037,6 @@ function initAppEvents() {
       renderAboutUs();
     });
 
-  // Contact Us Buttons
   document.getElementById("btn-contact-us")?.addEventListener("click", () => {
     navigateAndHighlightContact();
   });
@@ -2590,7 +3048,6 @@ function initAppEvents() {
       navigateAndHighlightContact();
     });
 
-  // Footer static dialogs
   document
     .getElementById("footer-link-disclaimer")
     ?.addEventListener("click", () => {
@@ -2607,7 +3064,6 @@ function initAppEvents() {
       );
     });
 
-  // Live Timestamp
   function updateLiveTimestamp() {
     const now = new Date();
     const formatted = now.toLocaleString("en-US", {
@@ -2626,7 +3082,6 @@ function initAppEvents() {
   setInterval(updateLiveTimestamp, 1000);
 }
 
-// Initial Boot
 document.addEventListener("DOMContentLoaded", () => {
   initAppEvents();
   const authenticatedUser = getAuthenticatedUser();

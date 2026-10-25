@@ -19,16 +19,26 @@ The application provides a public hospital website along with an authenticated h
 - Language selection interface
 - Responsive footer and hospital details
 
+### Visual Assets
+
+- Department illustrations are stored locally in `images/department-art.svg` and mapped to each specialty.
+- Hospital, doctor, health-check and blood-donation photos are locally stored Unsplash stock images. They are illustrative and do not depict Evercare's actual facilities or staff.
+- Stock photos are used under the [Unsplash License](https://unsplash.com/license).
+
 ### Authentication
 
 - Sign-in screen
 - Multi-step user registration
-- Email and password validation
-- OTP verification simulation
+- Email, phone, age, department, and password validation
+- Six-digit OTP sent by SMS through the backend before account creation
 - Strong password validation
-- Mock JWT authentication
-- Default demo account
+- Backend-issued bearer sessions for registered accounts
+- Default demo account for the frontend prototype
 - Sign-out functionality
+
+### Backend Setup
+
+Registration and sign-in use the Node.js API under `backend/`. Configure `backend/.env` from `backend/.env.example`, including Twilio SMS credentials and a private `JWT_SECRET`, then start the API and open this site through a local web server allowed by `CORS_ORIGINS`. See [backend/README.md](backend/README.md) for setup and endpoint details. OTP codes are never shown in the site.
 
 ### Hospital Staff Portal
 
