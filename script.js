@@ -10,7 +10,7 @@ async function requestApi(path, { method = "GET", body, token } = {}) {
   if (body) headers["Content-Type"] = "application/json";
   if (token) headers.Authorization = `Bearer ${token}`;
 
-  const candidateUrls = ["http://127.0.0.1:5000", "http://127.0.0.1:3001"];
+  const candidateUrls = ["https://evercare-hospital-development.onrender.com","http://127.0.0.1:5000", "http://127.0.0.1:3001"];
   let response;
 
   for (const baseUrl of candidateUrls) {
