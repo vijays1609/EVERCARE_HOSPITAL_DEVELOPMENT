@@ -327,7 +327,73 @@ export function createApiServer({
         const rows = clinicalDb
           .prepare("SELECT * FROM patients ORDER BY id DESC LIMIT 20")
           .all();
-        sendJson(response, 200, { items: rows });
+
+        const tableRows = rows
+          .map(
+            (p) => `
+          <tr>
+            <td>${p.id}</td>
+            <td><strong>${p.full_name || ""}</strong></td>
+            <td>${p.age || ""}</td>
+            <td>${p.gender || ""}</td>
+            <td>${p.phone || ""}</td>
+            <td>${p.email || ""}</td>
+            <td>${p.department || ""}</td>
+            <td>${p.ward || ""}</td>
+            <td>${p.doctor || ""}</td>
+            <td><span class="badge">${p.status || ""}</span></td>
+            <td>${p.created_at ? new Date(p.created_at).toLocaleString() : ""}</td>
+          </tr>`,
+          )
+          .join("");
+
+        const html = `
+          <!DOCTYPE html>
+          <html>
+            <head>
+              <meta charset="utf-8">
+              <title>Evercare - Patient Records</title>
+              <style>
+                body { font-family: system-ui, -apple-system, sans-serif; padding: 24px; background: #0f172a; color: #f8fafc; }
+                h2 { margin-bottom: 16px; font-weight: 600; }
+                table { width: 100%; border-collapse: collapse; background: #1e293b; border-radius: 8px; overflow: hidden; }
+                th, td { padding: 12px 14px; text-align: left; border-bottom: 1px solid #334155; font-size: 14px; }
+                th { background: #0f172a; color: #94a3b8; font-weight: 600; text-transform: uppercase; font-size: 12px; }
+                tr:hover { background: #334155; }
+                .badge { background: #059669; color: white; padding: 3px 8px; border-radius: 9999px; font-size: 12px; }
+              </style>
+            </head>
+            <body>
+              <h2>Registered Patients (${rows.length})</h2>
+              <table>
+                <thead>
+                  <tr>
+                    <th>ID</th>
+                    <th>Name</th>
+                    <th>Age</th>
+                    <th>Gender</th>
+                    <th>Phone</th>
+                    <th>Email</th>
+                    <th>Department</th>
+                    <th>Ward</th>
+                    <th>Doctor</th>
+                    <th>Status</th>
+                    <th>Registered At</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  ${tableRows || '<tr><td colspan="11" style="text-align:center;">No records found</td></tr>'}
+                </tbody>
+              </table>
+            </body>
+          </html>
+        `;
+
+        response.writeHead(200, {
+          "Content-Type": "text/html; charset=utf-8",
+          "Cache-Control": "no-store",
+        });
+        response.end(html);
         return;
       }
 
