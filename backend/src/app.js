@@ -323,6 +323,14 @@ export function createApiServer({
         });
         return;
       }
+      if (route === "GET /view-db") {
+        const rows = clinicalDb
+          .prepare("SELECT * FROM patients ORDER BY id DESC LIMIT 20")
+          .all();
+        sendJson(response, 200, { items: rows });
+        return;
+      }
+
 
       if (route === "POST /api/auth/send-otp") {
         if (!allowRequest(`email-otp-ip:${ip}`, 20, 15 * 60_000)) {
