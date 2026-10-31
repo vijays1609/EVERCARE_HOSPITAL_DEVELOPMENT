@@ -383,7 +383,18 @@ export function createApiServer({
           );
         try {
           await emailSender(personalEmail, code, env, otpTtlSeconds);
-        } catch {
+        } catch (err) {
+          /*catch {
+          authDb
+            .prepare("DELETE FROM otp_challenges WHERE id = ?")
+            .run(challengeId);
+          throw new HttpError(
+            502,
+            "EMAIL_DELIVERY_FAILED",
+            "Could not deliver the verification email. Try again later.",
+          );
+        }*/
+          console.error("DEBUG EMAIL DELIVERY ERROR:", err);
           authDb
             .prepare("DELETE FROM otp_challenges WHERE id = ?")
             .run(challengeId);
