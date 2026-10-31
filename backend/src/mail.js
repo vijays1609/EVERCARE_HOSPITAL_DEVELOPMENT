@@ -1,5 +1,4 @@
 import nodemailer from "nodemailer";
-import { Resend } from "resend";
 
 export async function sendOtpEmail(
   email,
@@ -8,51 +7,50 @@ export async function sendOtpEmail(
   ttlSeconds = 300,
 ) {
   const expiryMinutes = Math.ceil(ttlSeconds / 60);
-  const emailSubject = "Evercare hospital verification code";
-  const emailText = `Your Evercare hospital verification code is ${code}. It expires in ${expiryMinutes} minute(s). Do not share it.`;
-  const emailHtml = `
-    <div style="font-family: Arial, sans-serif; line-height: 1.6; color: #333;">
-      <h2 style="color: #0b57d0;">Evercare Hospital Verification</h2>
-      <p>Your 6-digit verification code is:</p>
-      <div style="font-size: 28px; font-weight: bold; letter-spacing: 4px; color: #1a73e8; margin: 16px 0;">
-        ${code}
-      </div>
-      <p>This code expires in <strong>${expiryMinutes} minute(s)</strong>. Do not share this code with anyone.</p>
-    </div>
-  `;
 
-  // 1. Resend (HTTPS API - Bypasses Render's SMTP port firewall)
-  const resendApiKey = env.RESEND_API_KEY;
-  if (resendApiKey) {
+  // 1. EmailJS (HTTPS REST API - sends to any Gmail address from Render)
+  const serviceId = env.EMAILJS_SERVICE_ID;
+  const templateId = env.EMAILJS_TEMPLATE_ID;
+  const publicKey = env.EMAILJS_PUBLIC_KEY;
+  const privateKey = env.EMAILJS_PRIVATE_KEY;
+
+  if (serviceId && templateId && publicKey) {
     try {
-      const resend = new Resend(resendApiKey);
-      const fromAddress =
-        env.RESEND_FROM || "Evercare Hospital <onboarding@resend.dev>";
+      const response = await fetch(
+        "https://api.emailjs.com/api/v1.0/email/send",
+        {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            service_id: serviceId,
+            template_id: templateId,
+            user_id: publicKey,
+            accessToken: privateKey,
+            template_params: {
+              email: email, // Fills the {{email}} field in your template
+              passcode: code, // Injects the generated OTP into {{passcode}}
+              time: `${expiryMinutes} minute(s)`, // Injects into {{time}}
+            },
+          }),
+        },
+      );
 
-      const { data, error } = await resend.emails.send({
-        from: fromAddress,
-        to: email,
-        subject: emailSubject,
-        text: emailText,
-        html: emailHtml,
-      });
-
-      if (error) {
-        console.error("Resend API Error:", error);
-        throw error;
+      if (!response.ok) {
+        const errText = await response.text();
+        throw new Error(`EmailJS error (${response.status}): ${errText}`);
       }
 
-      console.log(
-        `[Resend] OTP email successfully dispatched to ${email} (ID: ${data?.id})`,
-      );
+      console.log(`[EmailJS] OTP sent successfully to ${email}`);
       return true;
     } catch (err) {
-      console.error("Failed to send email via Resend:", err);
+      console.error("DEBUG EMAILJS DELIVERY ERROR:", err);
       throw err;
     }
   }
 
-  // 2. Fallback to Nodemailer SMTP (Local development)
+  // 2. Nodemailer Fallback (For local machine development)
   const smtpHost = env.SMTP_HOST;
   const smtpPort = env.SMTP_PORT;
   const smtpUser = env.SMTP_USER;
@@ -73,22 +71,19 @@ export async function sendOtpEmail(
       await transporter.sendMail({
         from: env.SMTP_FROM || smtpUser,
         to: email,
-        subject: emailSubject,
-        text: emailText,
-        html: emailHtml,
+        subject: "Evercare hospital verification code",
+        text: `Your Evercare verification code is ${code}. It expires in ${expiryMinutes} minute(s).`,
       });
 
-      console.log(`[SMTP] OTP email successfully sent to ${email}`);
+      console.log(`[SMTP] OTP sent successfully to ${email}`);
       return true;
     } catch (err) {
-      console.error("Failed to send email via SMTP:", err);
+      console.error("DEBUG SMTP DELIVERY ERROR:", err);
       throw err;
     }
   }
 
-  // 3. Fallback to console log (Offline testing)
-  console.log(
-    `[Evercare email fallback] Verification code for ${email}: ${code} (expires in ${ttlSeconds}s)`,
-  );
+  // 3. Fallback console log when no credentials are configured
+  console.log(`[Evercare fallback] Verification code for ${email}: ${code}`);
   return true;
 }
